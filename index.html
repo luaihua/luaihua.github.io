@@ -1,0 +1,178 @@
+<!DOCTYPE html><html lang="zh-CN" data-theme="light"><head><meta charset="UTF-8"><meta http-equiv="X-UA-Compatible" content="IE=edge"><meta name="viewport" content="width=device-width, initial-scale=1.0,viewport-fit=cover"><title>Hello World</title><meta name="author" content="忆念"><meta name="copyright" content="忆念"><meta name="format-detection" content="telephone=no"><meta name="theme-color" content="#ffffff"><meta property="og:type" content="website">
+<meta property="og:title" content="Hello World">
+<meta property="og:url" content="http://example.com/index.html">
+<meta property="og:site_name" content="Hello World">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:image" content="http://example.com/images/tx6.jpg">
+<meta property="article:author" content="忆念">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:image" content="http://example.com/images/tx6.jpg"><script type="application/ld+json">{
+  "@context": "https://schema.org",
+  "@type": "WebSite",
+  "name": "Hello World",
+  "alternateName": [
+    "example.com"
+  ],
+  "url": "http://example.com/"
+}</script><link rel="shortcut icon" href="/images/bj.webp"><link rel="canonical" href="http://example.com/index.html"><link rel="preconnect" href="//cdn.jsdelivr.net"/><link rel="preconnect" href="//busuanzi.ibruce.info"/><link rel="stylesheet" href="/css/index.css?v=5.5.4"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@7.1.0/css/all.min.css"><script>
+    (() => {
+      
+    const saveToLocal = {
+      set: (key, value, ttl) => {
+        if (!ttl) return
+        const expiry = Date.now() + ttl * 86400000
+        localStorage.setItem(key, JSON.stringify({ value, expiry }))
+      },
+      get: key => {
+        const itemStr = localStorage.getItem(key)
+        if (!itemStr) return undefined
+        const { value, expiry } = JSON.parse(itemStr)
+        if (Date.now() > expiry) {
+          localStorage.removeItem(key)
+          return undefined
+        }
+        return value
+      }
+    }
+
+    window.btf = {
+      saveToLocal,
+      getScript: (url, attr = {}) => new Promise((resolve, reject) => {
+        const script = document.createElement('script')
+        script.src = url
+        script.async = true
+        Object.entries(attr).forEach(([key, val]) => script.setAttribute(key, val))
+        script.onload = script.onreadystatechange = () => {
+          if (!script.readyState || /loaded|complete/.test(script.readyState)) resolve()
+        }
+        script.onerror = reject
+        document.head.appendChild(script)
+      }),
+      getCSS: (url, id) => new Promise((resolve, reject) => {
+        const link = document.createElement('link')
+        link.rel = 'stylesheet'
+        link.href = url
+        if (id) link.id = id
+        link.onload = link.onreadystatechange = () => {
+          if (!link.readyState || /loaded|complete/.test(link.readyState)) resolve()
+        }
+        link.onerror = reject
+        document.head.appendChild(link)
+      }),
+      addGlobalFn: (key, fn, name = false, parent = window) => {
+        if (!false && key.startsWith('pjax')) return
+        const globalFn = parent.globalFn || {}
+        globalFn[key] = globalFn[key] || {}
+        globalFn[key][name || Object.keys(globalFn[key]).length] = fn
+        parent.globalFn = globalFn
+      }
+    }
+  
+      
+      const activateDarkMode = () => {
+        document.documentElement.setAttribute('data-theme', 'dark')
+        if (document.querySelector('meta[name="theme-color"]') !== null) {
+          document.querySelector('meta[name="theme-color"]').setAttribute('content', '#0d0d0d')
+        }
+      }
+      const activateLightMode = () => {
+        document.documentElement.setAttribute('data-theme', 'light')
+        if (document.querySelector('meta[name="theme-color"]') !== null) {
+          document.querySelector('meta[name="theme-color"]').setAttribute('content', '#ffffff')
+        }
+      }
+
+      btf.activateDarkMode = activateDarkMode
+      btf.activateLightMode = activateLightMode
+
+      const theme = saveToLocal.get('theme')
+    
+          theme === 'dark' ? activateDarkMode() : theme === 'light' ? activateLightMode() : null
+        
+      
+      const asideStatus = saveToLocal.get('aside-status')
+      if (asideStatus !== undefined) {
+        document.documentElement.classList.toggle('hide-aside', asideStatus === 'hide')
+      }
+    
+      
+    const detectApple = () => {
+      if (/iPad|iPhone|iPod|Macintosh/.test(navigator.userAgent)) {
+        document.documentElement.classList.add('apple')
+      }
+    }
+    detectApple()
+  
+    })()
+  </script><script>const GLOBAL_CONFIG = {
+  root: '/',
+  algolia: undefined,
+  localSearch: undefined,
+  translate: undefined,
+  highlight: {"plugin":"highlight.js","highlightCopy":true,"highlightLang":true,"highlightHeightLimit":false,"highlightFullpage":false,"highlightMacStyle":false},
+  copy: {
+    success: '复制成功',
+    error: '复制失败',
+    noSupport: '浏览器不支持'
+  },
+  relativeDate: {
+    homepage: false,
+    post: false
+  },
+  runtime: '',
+  dateSuffix: {
+    just: '刚刚',
+    min: '分钟前',
+    hour: '小时前',
+    day: '天前',
+    month: '个月前'
+  },
+  copyright: undefined,
+  lightbox: 'null',
+  Snackbar: undefined,
+  infinitegrid: {
+    js: 'https://cdn.jsdelivr.net/npm/@egjs/infinitegrid@4.13.0/dist/infinitegrid.min.js',
+    buttonText: '加载更多'
+  },
+  isPhotoFigcaption: false,
+  islazyloadPlugin: false,
+  isAnchor: false,
+  percent: {
+    toc: true,
+    rightside: false,
+  },
+  autoDarkmode: false
+}</script><script id="config-diff">var GLOBAL_CONFIG_SITE = {
+  title: 'Hello World',
+  isHighlightShrink: false,
+  isToc: false,
+  pageType: 'home'
+}</script><meta name="generator" content="Hexo 8.1.1"></head><body><div class="bg-animation" id="web_bg" style="background-image: url(/images/bj5.png);"></div><div id="sidebar"><div id="menu-mask"></div><div id="sidebar-menus"><div class="avatar-img text-center"><img src="/images/tx6.jpg" onerror="this.onerror=null;this.src='/img/friend_404.gif'" alt="avatar"/></div><div class="site-data text-center"><a href="/archives/"><div class="headline">文章</div><div class="length-num">16</div></a><a href="/tags/"><div class="headline">标签</div><div class="length-num">5</div></a><a href="/categories/"><div class="headline">分类</div><div class="length-num">0</div></a></div><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><i class="fa-fw fas fa-home"></i><span> 首页</span></a></div></div></div></div><div class="page" id="body-wrap"><header class="full_page fixed" id="page-header" style="background-image: url(/images/bj3.jpg);"><nav id="nav"><span id="blog-info"><a class="nav-site-title" href="/"><img class="site-icon" src="/images/bj.webp" alt="Logo"></a></span><div id="menus"><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><i class="fa-fw fas fa-home"></i><span> 首页</span></a></div></div><div id="toggle-menu"><span class="site-page"><i class="fas fa-bars fa-fw"></i></span></div></div></nav><div id="site-info"><h1 id="site-title">Hello World</h1></div><div id="scroll-down"><i class="fas fa-angle-down scroll-down-effects"></i></div></header><main class="layout" id="content-inner"><div class="recent-posts nc" id="recent-posts"><div class="recent-post-items"><div class="recent-post-item"><div class="recent-post-info no-cover"><a class="article-title" href="/2026/04/11/sql%E6%B3%A8%E5%85%A5/" title="sql注入">sql注入</a><div class="article-meta-wrap"><span class="post-meta-date"><i class="far fa-calendar-alt"></i><span class="article-meta-label">发表于</span><time datetime="2026-04-11T09:02:45.000Z" title="发表于 2026-04-11 17:02:45">2026-04-11</time></span></div><div class="content">一.判断数字型和字符型sql注入 在表单数据后添加 and 1&#x3D;1&#x2F;1&#x3D;2&#x2F;3-1如果无论1&#x3D;1或1&#x3D;2都能正常登录，说明是字符型sql注入，否则是数字型sql注入。  以上两个1&#x3D;1和1&#x3D;2都能正常登录，说明是字符型sql注入二.查找注点 在字符型注入表单数据前面或后面加上’ ,” ,’) ,”) 查看引号的包裹方式  三.判断查询的列数 因为union合并的两个查询语句列数必须相同，所以必须查询系统表的列数，然后使注入的sql语句列数与系统表的列数相同。先从大到小以二分法试，直到试对。 查询的函数为group by h和 order by (推荐用group by,更不容易被防火墙拦截) 以上一直查询到3列才显示结果，说明查询的列数是3列。注意：第一个查询结果无效，比如select 1，2，3 只会显示2，3结果。四.使注入命令的执行结果能正常显示 在注入后系统只会显示union查询的前一个查询的结果，所以要使前一个查询无效，让前一个查询的结果为空，一般把前一个查询的id设为一个不存在的id（0，...</div></div></div><div class="recent-post-item"><div class="recent-post-info no-cover"><a class="article-title" href="/2026/04/08/PHP%E9%AB%98%E7%BA%A7%E7%94%A8%E6%B3%95/" title="PHP高级用法">PHP高级用法</a><div class="article-meta-wrap"><span class="post-meta-date"><i class="far fa-calendar-alt"></i><span class="article-meta-label">发表于</span><time datetime="2026-04-08T12:43:05.000Z" title="发表于 2026-04-08 20:43:05">2026-04-08</time></span></div><div class="content">日期和时间date() 函数 date() 函数用于格式化日期和时间。  12345&lt;?phpecho date(&quot;Y/m/d&quot;) . &quot;&lt;br&gt;&quot;;echo date(&quot;Y.m.d&quot;) . &quot;&lt;br&gt;&quot;;echo date(&quot;Y-m-d&quot;);?&gt; 输出结果1232026/04/082026.04.082026-04-08    format字符 描述 返回值例子    Y 年，四位数字 例如：1999 或 2003   y 年，两位数字 例如：99 或 03   m 月，两位数字 01-12   M 月，完整名称 January 到 December   d 月份中的第几天，有前导零的 2 位数字 01-31   j 月份中的第几天，没有前导零 1-31   D 星期几，缩写 Mon - Sun   l 星期几,完整名称 Monday - Sunday   H 小时，24小时制 00 - 23   h 小时，12小时制 00 - 12   i ...</div></div></div><div class="recent-post-item"><div class="recent-post-info no-cover"><a class="article-title" href="/2026/04/04/PHP%E8%AF%AD%E6%B3%95/" title="PHP语法">PHP语法</a><div class="article-meta-wrap"><span class="post-meta-date"><i class="far fa-calendar-alt"></i><span class="article-meta-label">发表于</span><time datetime="2026-04-04T12:56:38.000Z" title="发表于 2026-04-04 20:56:38">2026-04-04</time></span></div><div class="content">一.PHP中的注释123456789// 或 # 单行注释/*    多行注释*//**    文档注释*/ 二.PHP中变量作用域全局变量 全局变量是在函数外部定义的变量，可以在任何地方访问。  局部变量 局部变量是在函数内部定义的变量，只能在函数内部访问。  global 关键字 global 关键字用于在函数内部访问全局变量，变量前加上global为全局变量。  static 关键字 static 关键字用于在函数内部定义的变量，变量前加上static为静态变量。  1234567function test() &#123;    static $count = 0;    $count++;    echo $count;# 每次使用static变量，都会保留上次的值# 注意：该变量是函数的局部变量&#125; 三.PHP中EOFPHP EOF(heredoc)是一种在命令行shell（如sh、csh、ksh、bash、PowerShell和zsh）和程序语言（像Perl、PHP、Python和Ruby）里定义一个字符串的方法。 必须后接分号，否则编译通不过。 EOF 可...</div></div></div><div class="recent-post-item"><div class="recent-post-info no-cover"><a class="article-title" href="/2026/04/02/MySQL%E5%91%BD%E4%BB%A4-3/" title="MySQL(3)">MySQL(3)</a><div class="article-meta-wrap"><span class="post-meta-date"><i class="far fa-calendar-alt"></i><span class="article-meta-label">发表于</span><time datetime="2026-04-02T12:10:46.000Z" title="发表于 2026-04-02 20:10:46">2026-04-02</time></span></div><div class="content">一.用户管理1. 创建用户基本格式1234create user &#x27;username&#x27;@&#x27;localhost&#x27; identified by &#x27;password&#x27;;#&#x27;username&#x27;表示安创建的用尸的用尸名#&#x27;localhost&#x27;表示用户可以通过连接到MySQL服务器的本地主机,用‘%’表示允许来自任何主机的连接。#&#x27;password&#x27;表示要创建的用户的密码 2. 删除用户基本格式12drop user &#x27;username&#x27;@&#x27;localhost&#x27;;#&#x27;username&#x27;表示要删除的用户名 3. 赋予用户权限基本格式1234grant 权限 on 数据库名.表名 to 用户名@主机名# 多个权限之间用逗号隔开# 数据库名和表名用*代替分别代表所有数据库和所有表# all privileges 表示赋予所有权限 实例12GRANT SELECT, INSERT ON database_name.tabl...</div></div></div><div class="recent-post-item"><div class="recent-post-info no-cover"><a class="article-title" href="/2026/04/01/MySQL%E5%91%BD%E4%BB%A4-2/" title="MySQL命令(2)">MySQL命令(2)</a><div class="article-meta-wrap"><span class="post-meta-date"><i class="far fa-calendar-alt"></i><span class="article-meta-label">发表于</span><time datetime="2026-04-01T07:43:11.000Z" title="发表于 2026-04-01 15:43:11">2026-04-01</time></span></div><div class="content">一.插入数据12INSERT INTO 表名 (列名1,列名2,列名...)values (列值1值,列值2,列值3...);  注意：- 插入数据的时候,列名和列值的顺序要一致!- 如果数据类型是字符串,要使用单引号包裹! 二.查询数据1. 基本格式1SELECT 列名1,列名2,列名... | * FROM 表名;  *代表查询所有列  2. 查询条件12SELECT 列名1,列名2,列名... | * FROM 表名WHERE 列名 条件; 3. where条件语句 where 子句类似于程序语言中的 if 条件，根据 MySQL 表中的字段值来读取指定的数据。 where 子句也可以运用于 SQL 的 delete 或者 update 命令。 你可以使用 and 或者 or 指定一个或多个条件。  实例：12SELECT * FROM users WHERE username = &#x27;test&#x27;;# 查询username列数据为test的行的所有信息 12SELECT * FROM users WHERE username != &#x27;runoob...</div></div></div><div class="recent-post-item"><div class="recent-post-info no-cover"><a class="article-title" href="/2026/03/29/MySQL%E5%91%BD%E4%BB%A4/" title="MySQL命令(1)">MySQL命令(1)</a><div class="article-meta-wrap"><span class="post-meta-date"><i class="far fa-calendar-alt"></i><span class="article-meta-label">发表于</span><time datetime="2026-03-29T12:14:02.000Z" title="发表于 2026-03-29 20:14:02">2026-03-29</time></span></div><div class="content">一.创建数据库1. 直接创建数据库（默认字符集和排序规则）1create database 数据库名;  2. 判断数据库是否存在，不存在则创建1create database if not exists 数据库名;  3. 指定字符集创建数据库1create database 数据库名 character set 字符集;  4. 指定字符集和排序规则创建数据库1create database 数据库名 character set 字符集 collate 排序规则;  字符集种类 utf8mb3（支持中文，过时） utf8mb4（支持emoji表情，mysql8.0默认字符集）  排序规则种类 utf8mb3_general_ci（支持中文，过时） utf8mb4_general_ci（支持emoji表情，大小写敏感排序） utf8mb4_ai_ci（支持emoji表情，unicode排序,大小写和重音敏感排序,mysql8.0默认排序规则） utf8mb4_as_ci（支持emoji表情，unicode排序，大小写和重音敏感排序）  注意:创建数据库时，字符集和排序规则必须一...</div></div></div><div class="recent-post-item"><div class="recent-post-info no-cover"><a class="article-title" href="/2026/03/29/MySQL%E7%9A%84%E9%85%8D%E7%BD%AE/" title="MySQL的配置">MySQL的配置</a><div class="article-meta-wrap"><span class="post-meta-date"><i class="far fa-calendar-alt"></i><span class="article-meta-label">发表于</span><time datetime="2026-03-29T08:35:20.000Z" title="发表于 2026-03-29 16:35:20">2026-03-29</time></span></div><div class="content">一.下载从MySQL官网上下载第二个文件（约550MB） 下载完后跟着系统默认指示操作（在指定文件存放地址的时候最好不要放在c盘（系统盘），MySQL后期占用内存大）操作完后点击finish按钮即下载完成二.配置环境变量刚下载完后是无法通过终端直接连接MySQL数据库的，要把MySQL设置成环境变量才行先进入高级系统设置，在进入环境变量，在系统变量中新建变量，命名MySQL_Home(随意命名)，变量值为C:\Program Files\MySQL\MySQL Server 8.0 再编辑系统变量里的Path变量，新建一个变量%MySQL_Home%\bin(用%包裹刚创建的MySQL_Home变量可直接代表路径) 注意：如果Path变量里已经有了类似于phpstudy集成环境自带的MySQL,一定要把新建的MySQL变量放在其前面，不然系统会优先调用phpstudy集成环境自带的MySQL客户端，导致客户端与服务端不匹配，ssh无法认证，从而无法连接数据库。（之前因为这个问题在实验室卡了一个下午加一晚上）  在完成以上配置后就可以通过终端直接连接MySQL了 三.安装可视化工具...</div></div></div><div class="recent-post-item"><div class="recent-post-info no-cover"><a class="article-title" href="/2026/03/28/markdown%E8%AF%AD%E6%B3%95/" title="markdown语法">markdown语法</a><div class="article-meta-wrap"><span class="post-meta-date"><i class="far fa-calendar-alt"></i><span class="article-meta-label">发表于</span><time datetime="2026-03-28T07:10:17.000Z" title="发表于 2026-03-28 15:10:17">2026-03-28</time></span></div><div class="content">一.Markdown标题语法要创建标题，请在单词或短语前面添加井号 (#) 。# 的数量代表了标题的级别。 #一级标题##二级标题###三级标题####四级标题 二.Markdownd段落语法创建段落，要使用空白行将一行或多行文本进行分隔。 段落a 段落b 段落c  注意：（不要用空格或制表符（ tabs）缩进段落。）三.Markdown的换行语法1在一行的末尾添加两个或多个空格，然后按回车键,即可创建一个换行。（为了兼容性，可以在行尾添加“结尾空格”或 HTML 的 &lt;br&gt; 标签来实现换行。）  四.Markdown的强调语法粗体   语法 文本 预览    **  ** **粗体**字符 粗体字符   __  __（不建议） __粗体__字符 粗体字符   斜体   语法 文本 预览    *  * *斜体*字符 斜体字符   _  _（不建议） _斜体_字符 斜体字符   粗体加斜体   语法 文本 预览    ***  *** ***粗斜***字符 粗斜字符   ___  ___ ___粗斜___字符 粗斜字符   五.Markdown引用语法要创建块引用，...</div></div></div><div class="recent-post-item"><div class="recent-post-info no-cover"><a class="article-title" href="/2026/03/25/awk%E8%84%9A%E6%9C%AC%E7%9A%84%E8%AF%AD%E6%B3%95/" title="awk脚本的语法">awk脚本的语法</a><div class="article-meta-wrap"><span class="post-meta-date"><i class="far fa-calendar-alt"></i><span class="article-meta-label">发表于</span><time datetime="2026-03-25T09:36:10.000Z" title="发表于 2026-03-25 17:36:10">2026-03-25</time></span></div><div class="content">如何调用脚本一. 使用 -f 选项运行脚本将 awk 命令写入一个文本文件（例如 my.awk），然后用 -f 调用：1awk -f my.awk 输入文件1 [输入文件2 ...] 示例脚本 my.awk:123BEGIN &#123; print &quot;开始处理&quot; &#125;&#123; print &quot;行号:&quot; NR, &quot;内容:&quot; $0 &#125;END &#123; print &quot;处理完成&quot; &#125; 运行：1awk -f my.awk data.txt 二. 让 awk 脚本直接可执行（shebang）在脚本文件的第一行添加 #!&#x2F;usr&#x2F;bin&#x2F;awk -f，然后赋予执行权限。示例脚本 count.awk：123456#!/usr/bin/awk -f# 统计非空行数量BEGIN &#123; count = 0 &#125;NF &gt; 0 &#123; count++ &#125;END &#123; print &quot;非空行数:&quot;, ...</div></div></div><div class="recent-post-item"><div class="recent-post-info no-cover"><a class="article-title" href="/2026/03/25/linux%E4%B8%89%E5%89%91%E5%AE%A2/" title="linux三剑客">linux三剑客</a><div class="article-meta-wrap"><span class="post-meta-date"><i class="far fa-calendar-alt"></i><span class="article-meta-label">发表于</span><time datetime="2026-03-25T08:15:19.000Z" title="发表于 2026-03-25 16:15:19">2026-03-25</time></span></div><div class="content">一. grep —— 文本搜索工具作用：根据正则表达式或固定字符串，从文件或标准输入中过滤出匹配的行。基本语法:grep [选项] PATTERN [文件…]常用选项：-i：忽略大小写r：递归搜索目录中的文件-v：反向匹配，显示不包含匹配的行-n：显示匹配行的行号-l：仅列出包含匹配的文件名常用场景：1.搜索日志中的错误信息2.从配置文件中查找特定设置3.结合管道过滤其他命令的输出常见用法： grep “error” app.log          # 在文件中搜索包含 error 的行 grep -i “warning” app.log     # 忽略大小写 grep -r “TODO” .&#x2F;src          # 递归搜索目录下所有文件 grep -E “error|fail” log      # 使用扩展正则匹配多个模式  二. sed —— 流编辑器作用：非交互式地对文本进行增、删、改、查等编辑操作，尤其适合脚本中批量处理文本。基本语法：sed [选项] ‘命令’ 文件常用选项：-e：添加执行的脚本-i：直接修改文件-n：取消默认输出常用命令：s&#...</div></div></div></div><nav id="pagination"><div class="pagination"><span class="page-number current">1</span><a class="page-number" href="/page/2/#content-inner">2</a><a class="extend next" rel="next" href="/page/2/#content-inner"><i class="fas fa-chevron-right fa-fw"></i></a></div></nav></div><div class="aside-content" id="aside-content"><div class="card-widget card-info text-center"><div class="avatar-img"><img src="/images/tx6.jpg" onerror="this.onerror=null;this.src='/img/friend_404.gif'" alt="avatar"/></div><div class="author-info-name">忆念</div><div class="author-info-description"></div><div class="site-data"><a href="/archives/"><div class="headline">文章</div><div class="length-num">16</div></a><a href="/tags/"><div class="headline">标签</div><div class="length-num">5</div></a><a href="/categories/"><div class="headline">分类</div><div class="length-num">0</div></a></div><a id="card-info-btn" target="_blank" rel="noopener" href="https://github.com/luaihua/luaihua.github.io"><i class="fab fa-github"></i><span>我的博客</span></a></div><div class="card-widget card-announcement"><div class="item-headline"><i class="fas fa-bullhorn fa-shake"></i><span>公告</span></div><div class="announcement_content">欢迎来到我的博客</div></div><div class="sticky_layout"><div class="card-widget card-recent-post"><div class="item-headline"><i class="fas fa-history"></i><span>最新文章</span></div><div class="aside-list"><div class="aside-list-item no-cover"><div class="content"><a class="title" href="/2026/04/11/sql%E6%B3%A8%E5%85%A5/" title="sql注入">sql注入</a><time datetime="2026-04-11T09:02:45.000Z" title="发表于 2026-04-11 17:02:45">2026-04-11</time></div></div><div class="aside-list-item no-cover"><div class="content"><a class="title" href="/2026/04/08/PHP%E9%AB%98%E7%BA%A7%E7%94%A8%E6%B3%95/" title="PHP高级用法">PHP高级用法</a><time datetime="2026-04-08T12:43:05.000Z" title="发表于 2026-04-08 20:43:05">2026-04-08</time></div></div><div class="aside-list-item no-cover"><div class="content"><a class="title" href="/2026/04/04/PHP%E8%AF%AD%E6%B3%95/" title="PHP语法">PHP语法</a><time datetime="2026-04-04T12:56:38.000Z" title="发表于 2026-04-04 20:56:38">2026-04-04</time></div></div><div class="aside-list-item no-cover"><div class="content"><a class="title" href="/2026/04/02/MySQL%E5%91%BD%E4%BB%A4-3/" title="MySQL(3)">MySQL(3)</a><time datetime="2026-04-02T12:10:46.000Z" title="发表于 2026-04-02 20:10:46">2026-04-02</time></div></div><div class="aside-list-item no-cover"><div class="content"><a class="title" href="/2026/04/01/MySQL%E5%91%BD%E4%BB%A4-2/" title="MySQL命令(2)">MySQL命令(2)</a><time datetime="2026-04-01T07:43:11.000Z" title="发表于 2026-04-01 15:43:11">2026-04-01</time></div></div></div></div><div class="card-widget card-tags"><div class="item-headline"><i class="fas fa-tags"></i><span>标签</span></div><div class="card-tag-cloud"><a href="/tags/python/" style="font-size: 1.37em; color: #99a4b2">python</a> <a href="/tags/linux/" style="font-size: 1.37em; color: #99a4b2">linux</a> <a href="/tags/PHP/" style="font-size: 1.23em; color: #999ea6">PHP</a> <a href="/tags/MySQL/" style="font-size: 1.5em; color: #99a9bf">MySQL</a> <a href="/tags/markdown/" style="font-size: 1.1em; color: #999">markdown</a></div></div><div class="card-widget card-archives">
+    <div class="item-headline">
+      <i class="fas fa-archive"></i>
+      <span>归档</span>
+      
+    </div>
+  
+    <ul class="card-archive-list">
+      
+        <li class="card-archive-list-item">
+          <a class="card-archive-list-link" href="/archives/2026/04/">
+            <span class="card-archive-list-date">
+              四月 2026
+            </span>
+            <span class="card-archive-list-count">5</span>
+          </a>
+        </li>
+      
+        <li class="card-archive-list-item">
+          <a class="card-archive-list-link" href="/archives/2026/03/">
+            <span class="card-archive-list-date">
+              三月 2026
+            </span>
+            <span class="card-archive-list-count">11</span>
+          </a>
+        </li>
+      
+    </ul>
+  </div><div class="card-widget card-webinfo"><div class="item-headline"><i class="fas fa-chart-line"></i><span>网站信息</span></div><div class="webinfo"><div class="webinfo-item"><div class="item-name">文章数目 :</div><div class="item-count">16</div></div><div class="webinfo-item"><div class="item-name">本站总字数 :</div><div class="item-count">15.7k</div></div><div class="webinfo-item"><div class="item-name">本站访客数 :</div><div class="item-count" id="busuanzi_value_site_uv"><i class="fa-solid fa-spinner fa-spin"></i></div></div><div class="webinfo-item"><div class="item-name">本站总浏览量 :</div><div class="item-count" id="busuanzi_value_site_pv"><i class="fa-solid fa-spinner fa-spin"></i></div></div><div class="webinfo-item"><div class="item-name">最后更新时间 :</div><div class="item-count" id="last-push-date" data-lastPushDate="2026-04-15T12:16:28.668Z"><i class="fa-solid fa-spinner fa-spin"></i></div></div></div></div></div></div></main><footer id="footer"><div class="footer-other"><div class="footer-copyright"><span class="copyright">&copy;&nbsp;2025 - 2026 By 忆念</span><span class="framework-info"><span>框架 </span><a target="_blank" rel="noopener" href="https://hexo.io">Hexo 8.1.1</a><span class="footer-separator">|</span><span>主题 </span><a target="_blank" rel="noopener" href="https://github.com/jerryc127/hexo-theme-butterfly">Butterfly 5.5.4</a></span></div></div></footer></div><div id="rightside"><div id="rightside-config-hide"><button id="darkmode" type="button" title="日间和夜间模式切换"><i class="fas fa-adjust"></i></button><button id="hide-aside-btn" type="button" title="单栏和双栏切换"><i class="fas fa-arrows-alt-h"></i></button></div><div id="rightside-config-show"><button id="rightside-config" type="button" title="设置"><i class="fas fa-cog fa-spin"></i></button><button id="go-up" type="button" title="回到顶部"><span class="scroll-percent"></span><i class="fas fa-arrow-up"></i></button></div></div><div><script src="/js/utils.js?v=5.5.4"></script><script src="/js/main.js?v=5.5.4"></script><div class="js-pjax"></div><canvas class="fireworks" mobile="true"></canvas><script src="https://cdn.jsdelivr.net/npm/butterfly-extsrc@1.1.6/dist/fireworks.min.js"></script><script id="canvas_nest" defer="defer" color="125,0,255" opacity="1" zIndex="-1" count="300" mobile="true" src="https://cdn.jsdelivr.net/npm/butterfly-extsrc@1.1.6/dist/canvas-nest.min.js"></script><script id="click-heart" src="https://cdn.jsdelivr.net/npm/butterfly-extsrc@1.1.6/dist/click-heart.min.js" async="async" mobile="true"></script><script id="click-show-text" src="https://cdn.jsdelivr.net/npm/butterfly-extsrc@1.1.6/dist/click-show-text.min.js" data-mobile="true" data-text="❤️ 开心,✨ 努力,🍀 幸运" data-fontsize="15px" data-random="false" async="async"></script><script async data-pjax src="//busuanzi.ibruce.info/busuanzi/2.3/busuanzi.pure.mini.js"></script></div></body></html>
