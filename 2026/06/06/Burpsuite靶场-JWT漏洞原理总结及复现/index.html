@@ -1,0 +1,237 @@
+<!DOCTYPE html><html lang="zh-CN" data-theme="light"><head><meta charset="UTF-8"><meta http-equiv="X-UA-Compatible" content="IE=edge"><meta name="viewport" content="width=device-width, initial-scale=1.0,viewport-fit=cover"><title>Burpsuite靶场-JWT漏洞原理总结及复现 | Hello World</title><meta name="author" content="忆念"><meta name="copyright" content="忆念"><meta name="format-detection" content="telephone=no"><meta name="theme-color" content="#ffffff"><meta name="description" content="一.未验证签名绕过JWT认证靶场地址:实验室：通过未验证签名绕过JWT认证 |网络安全学院 原理:由于服务器未对jwt签名进行验证,导致任何人生成的jwt都可以通过认证 靶场复现:准备工具:burpsuite加上jwt editor插件拓展 目的:伪造用户访问后台&#x2F;admin,越权删除账户carlos 1.启动靶场,登录账号密码 wiener:peter,抓取带有自身jwt的数据包进行修改显示4">
+<meta property="og:type" content="article">
+<meta property="og:title" content="Burpsuite靶场-JWT漏洞原理总结及复现">
+<meta property="og:url" content="https://luaihua.github.io/2026/06/06/Burpsuite%E9%9D%B6%E5%9C%BA-JWT%E6%BC%8F%E6%B4%9E%E5%8E%9F%E7%90%86%E6%80%BB%E7%BB%93%E5%8F%8A%E5%A4%8D%E7%8E%B0/index.html">
+<meta property="og:site_name" content="Hello World">
+<meta property="og:description" content="一.未验证签名绕过JWT认证靶场地址:实验室：通过未验证签名绕过JWT认证 |网络安全学院 原理:由于服务器未对jwt签名进行验证,导致任何人生成的jwt都可以通过认证 靶场复现:准备工具:burpsuite加上jwt editor插件拓展 目的:伪造用户访问后台&#x2F;admin,越权删除账户carlos 1.启动靶场,登录账号密码 wiener:peter,抓取带有自身jwt的数据包进行修改显示4">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:image" content="https://luaihua.github.io/images/tx6.png">
+<meta property="article:published_time" content="2026-06-06T13:00:00.000Z">
+<meta property="article:modified_time" content="2026-06-06T13:18:20.368Z">
+<meta property="article:author" content="忆念">
+<meta property="article:tag" content="JWT">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:image" content="https://luaihua.github.io/images/tx6.png"><script type="application/ld+json">{
+  "@context": "https://schema.org",
+  "@type": "BlogPosting",
+  "headline": "Burpsuite靶场-JWT漏洞原理总结及复现",
+  "url": "https://luaihua.github.io/2026/06/06/Burpsuite%E9%9D%B6%E5%9C%BA-JWT%E6%BC%8F%E6%B4%9E%E5%8E%9F%E7%90%86%E6%80%BB%E7%BB%93%E5%8F%8A%E5%A4%8D%E7%8E%B0/",
+  "image": "https://luaihua.github.io/images/tx6.png",
+  "datePublished": "2026-06-06T13:00:00.000Z",
+  "dateModified": "2026-06-06T13:18:20.368Z",
+  "author": [
+    {
+      "@type": "Person",
+      "name": "忆念",
+      "url": "https://luaihua.github.io"
+    }
+  ]
+}</script><link rel="shortcut icon" href="/images/bj.webp"><link rel="canonical" href="https://luaihua.github.io/2026/06/06/Burpsuite%E9%9D%B6%E5%9C%BA-JWT%E6%BC%8F%E6%B4%9E%E5%8E%9F%E7%90%86%E6%80%BB%E7%BB%93%E5%8F%8A%E5%A4%8D%E7%8E%B0/index.html"><link rel="preconnect" href="//cdn.jsdelivr.net"/><link rel="preconnect" href="//busuanzi.ibruce.info"/><link rel="stylesheet" href="/css/index.css?v=5.5.4"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@7.1.0/css/all.min.css"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fancyapps/ui@6.1.9/dist/fancybox/fancybox.min.css" media="print" onload="this.media='all'"><script>
+    (() => {
+      
+    const saveToLocal = {
+      set: (key, value, ttl) => {
+        if (!ttl) return
+        const expiry = Date.now() + ttl * 86400000
+        localStorage.setItem(key, JSON.stringify({ value, expiry }))
+      },
+      get: key => {
+        const itemStr = localStorage.getItem(key)
+        if (!itemStr) return undefined
+        const { value, expiry } = JSON.parse(itemStr)
+        if (Date.now() > expiry) {
+          localStorage.removeItem(key)
+          return undefined
+        }
+        return value
+      }
+    }
+
+    window.btf = {
+      saveToLocal,
+      getScript: (url, attr = {}) => new Promise((resolve, reject) => {
+        const script = document.createElement('script')
+        script.src = url
+        script.async = true
+        Object.entries(attr).forEach(([key, val]) => script.setAttribute(key, val))
+        script.onload = script.onreadystatechange = () => {
+          if (!script.readyState || /loaded|complete/.test(script.readyState)) resolve()
+        }
+        script.onerror = reject
+        document.head.appendChild(script)
+      }),
+      getCSS: (url, id) => new Promise((resolve, reject) => {
+        const link = document.createElement('link')
+        link.rel = 'stylesheet'
+        link.href = url
+        if (id) link.id = id
+        link.onload = link.onreadystatechange = () => {
+          if (!link.readyState || /loaded|complete/.test(link.readyState)) resolve()
+        }
+        link.onerror = reject
+        document.head.appendChild(link)
+      }),
+      addGlobalFn: (key, fn, name = false, parent = window) => {
+        if (!false && key.startsWith('pjax')) return
+        const globalFn = parent.globalFn || {}
+        globalFn[key] = globalFn[key] || {}
+        globalFn[key][name || Object.keys(globalFn[key]).length] = fn
+        parent.globalFn = globalFn
+      }
+    }
+  
+      
+      const activateDarkMode = () => {
+        document.documentElement.setAttribute('data-theme', 'dark')
+        if (document.querySelector('meta[name="theme-color"]') !== null) {
+          document.querySelector('meta[name="theme-color"]').setAttribute('content', '#0d0d0d')
+        }
+      }
+      const activateLightMode = () => {
+        document.documentElement.setAttribute('data-theme', 'light')
+        if (document.querySelector('meta[name="theme-color"]') !== null) {
+          document.querySelector('meta[name="theme-color"]').setAttribute('content', '#ffffff')
+        }
+      }
+
+      btf.activateDarkMode = activateDarkMode
+      btf.activateLightMode = activateLightMode
+
+      const theme = saveToLocal.get('theme')
+    
+          theme === 'dark' ? activateDarkMode() : theme === 'light' ? activateLightMode() : null
+        
+      
+      const asideStatus = saveToLocal.get('aside-status')
+      if (asideStatus !== undefined) {
+        document.documentElement.classList.toggle('hide-aside', asideStatus === 'hide')
+      }
+    
+      
+    const detectApple = () => {
+      if (/iPad|iPhone|iPod|Macintosh/.test(navigator.userAgent)) {
+        document.documentElement.classList.add('apple')
+      }
+    }
+    detectApple()
+  
+    })()
+  </script><script>const GLOBAL_CONFIG = {
+  root: '/',
+  algolia: undefined,
+  localSearch: {"path":"/search.xml","preload":true,"top_n_per_article":1,"unescape":false,"pagination":{"enable":false,"hitsPerPage":8},"languages":{"hits_empty":"未找到符合您查询的内容：${query}","hits_stats":"共找到 ${hits} 篇文章"}},
+  translate: undefined,
+  highlight: {"plugin":"highlight.js","highlightCopy":true,"highlightLang":true,"highlightHeightLimit":false,"highlightFullpage":false,"highlightMacStyle":false},
+  copy: {
+    success: '复制成功',
+    error: '复制失败',
+    noSupport: '浏览器不支持'
+  },
+  relativeDate: {
+    homepage: false,
+    post: false
+  },
+  runtime: '',
+  dateSuffix: {
+    just: '刚刚',
+    min: '分钟前',
+    hour: '小时前',
+    day: '天前',
+    month: '个月前'
+  },
+  copyright: undefined,
+  lightbox: 'fancybox',
+  Snackbar: undefined,
+  infinitegrid: {
+    js: 'https://cdn.jsdelivr.net/npm/@egjs/infinitegrid@4.13.0/dist/infinitegrid.min.js',
+    buttonText: '加载更多'
+  },
+  isPhotoFigcaption: false,
+  islazyloadPlugin: false,
+  isAnchor: false,
+  percent: {
+    toc: true,
+    rightside: false,
+  },
+  autoDarkmode: false
+}</script><script id="config-diff">var GLOBAL_CONFIG_SITE = {
+  title: 'Burpsuite靶场-JWT漏洞原理总结及复现',
+  isHighlightShrink: false,
+  isToc: true,
+  pageType: 'post'
+}</script><style>:root{--hl-bg:#000;--hltools-bg:#111;--hlnumber-bg:#000}figure.highlight table::-webkit-scrollbar-thumb,.container figure.highlight.default pre::-webkit-scrollbar-thumb{background:rgba(255,255,255,0.6)!important}@-moz-document url-prefix(){figure.highlight{scrollbar-color:rgba(255,255,255,0.6) transparent}}body{cursor:url("/img/diamond-sword-cursor.png") 0 0, auto}a,button,.site-page,.article-title,.article-meta__tags,[role=button],input,select,summary{cursor:url("/img/diamond-sword-cursor.png") 0 0, pointer}table, table th, table td{border-color:#000!important}[data-theme=dark] table,[data-theme=dark] table th,[data-theme=dark] table td{border-color:#333!important}</style><style>.article-meta-wrap .article-meta__tags{display:inline-block;padding:0 10px;border:1px solid #49b1f5;border-radius:10px;color:#49b1f5!important;font-size:.85em;transition:all .2s ease}.article-meta-wrap .article-meta__tags:hover{background:#49b1f5;color:#fff!important;text-decoration:none!important} #recent-posts .recent-post-item,#aside-content .card-widget,.layout .pagination>*:not(.space),#post{background:rgba(255,255,255,0.55)!important;-webkit-backdrop-filter:blur(5px);backdrop-filter:blur(5px)}[data-theme=dark] #recent-posts .recent-post-item,[data-theme=dark] #aside-content .card-widget,[data-theme=dark] .layout .pagination>*:not(.space),[data-theme=dark] #post{background:rgba(0,0,0,0.35)!important;-webkit-backdrop-filter:blur(5px);backdrop-filter:blur(5px)} #footer{background:rgba(0,0,0,0.3)!important;-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);border-top:1px solid rgba(73,177,245,0.2)!important;padding:20px 0!important}#footer::before{display:none!important}#footer .footer-other{text-align:center;opacity:.9}#footer .footer-other .footer-copyright{font-size:.9em;margin-bottom:6px}#footer .footer-other .footer_custom_text{font-size:.85em;color:var(--text-light)}#footer a{color:#49b1f5!important;transition:all .3s}#footer a:hover{color:#ff7242!important;text-shadow:0 0 8px rgba(73,177,245,0.5)}#footer .footer-separator{margin:0 8px;opacity:.4} </style><meta name="generator" content="Hexo 8.1.1"></head><body><div class="bg-animation" id="web_bg" style="background-image: url(/img/bj6.png);"></div><div id="sidebar"><div id="menu-mask"></div><div id="sidebar-menus"><div class="avatar-img text-center"><img src="/images/tx6.png" onerror="this.onerror=null;this.src='/img/friend_404.gif'" alt="avatar"/ loading='lazy'></div><div class="site-data text-center"><a href="/archives/"><div class="headline">文章</div><div class="length-num">36</div></a><a href="/tags/"><div class="headline">标签</div><div class="length-num">19</div></a><a href="/categories/"><div class="headline">分类</div><div class="length-num">1</div></a></div><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><i class="fa-fw fas fa-home"></i><span> 首页</span></a></div><div class="menus_item"><a class="site-page" href="/archives/"><i class="fa-fw fas fa-archive"></i><span> 归档</span></a></div><div class="menus_item"><a class="site-page" href="/categories/"><i class="fa-fw fas fa-folder-open"></i><span> 分类</span></a></div><div class="menus_item"><a class="site-page" href="/tags/"><i class="fa-fw fas fa-tags"></i><span> 标签</span></a></div></div></div></div><div class="post" id="body-wrap"><header class="post-bg fixed" id="page-header" style="background-image: url(/images/bj3.jpg);"><nav id="nav"><span id="blog-info"><a class="nav-site-title" href="/"><img class="site-icon" src="/images/bj.webp" alt="Logo" loading='lazy'><span class="site-name">Hello World</span></a><a class="nav-page-title" href="/"><span class="site-name">Burpsuite靶场-JWT漏洞原理总结及复现</span><span class="site-name"><i class="fa-solid fa-circle-arrow-left"></i><span>  返回首页</span></span></a></span><div id="menus"><div id="search-button"><span class="site-page social-icon search"><i class="fas fa-search fa-fw"></i><span> 搜索</span></span></div><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><i class="fa-fw fas fa-home"></i><span> 首页</span></a></div><div class="menus_item"><a class="site-page" href="/archives/"><i class="fa-fw fas fa-archive"></i><span> 归档</span></a></div><div class="menus_item"><a class="site-page" href="/categories/"><i class="fa-fw fas fa-folder-open"></i><span> 分类</span></a></div><div class="menus_item"><a class="site-page" href="/tags/"><i class="fa-fw fas fa-tags"></i><span> 标签</span></a></div></div><div id="toggle-menu"><span class="site-page"><i class="fas fa-bars fa-fw"></i></span></div></div></nav><div id="post-info"><h1 class="post-title">Burpsuite靶场-JWT漏洞原理总结及复现</h1><div id="post-meta"><div class="meta-firstline"><span class="post-meta-date"><i class="far fa-calendar-alt fa-fw post-meta-icon"></i><span class="post-meta-label">发表于</span><time class="post-meta-date-created" datetime="2026-06-06T13:00:00.000Z" title="发表于 2026-06-06 21:00:00">2026-06-06</time><span class="post-meta-separator">|</span><i class="fas fa-history fa-fw post-meta-icon"></i><span class="post-meta-label">更新于</span><time class="post-meta-date-updated" datetime="2026-06-06T13:18:20.368Z" title="更新于 2026-06-06 21:18:20">2026-06-06</time></span><span class="post-meta-categories"><span class="post-meta-separator">|</span><i class="fas fa-inbox fa-fw post-meta-icon"></i><a class="post-meta-categories" href="/categories/%E6%B8%97%E9%80%8F%E6%B5%8B%E8%AF%95/">渗透测试</a></span></div><div class="meta-secondline"><span class="post-meta-separator">|</span><span class="post-meta-wordcount"><i class="far fa-file-word fa-fw post-meta-icon"></i><span class="post-meta-label">总字数:</span><span class="word-count">1.4k</span><span class="post-meta-separator">|</span><i class="far fa-clock fa-fw post-meta-icon"></i><span class="post-meta-label">阅读时长:</span><span>5分钟</span></span><span class="post-meta-separator">|</span><span class="post-meta-pv-cv" id="" data-flag-title=""><i class="far fa-eye fa-fw post-meta-icon"></i><span class="post-meta-label">浏览量:</span><span id="busuanzi_value_page_pv"><i class="fa-solid fa-spinner fa-spin"></i></span></span></div></div></div></header><main class="layout" id="content-inner"><div id="post"><article class="container post-content" id="article-container"><hr>
+<h2 id="一-未验证签名绕过JWT认证"><a href="#一-未验证签名绕过JWT认证" class="headerlink" title="一.未验证签名绕过JWT认证"></a>一.未验证签名绕过JWT认证</h2><p><strong>靶场地址</strong>:<a target="_blank" rel="noopener" href="https://portswigger.net/web-security/jwt/lab-jwt-authentication-bypass-via-unverified-signature">实验室：通过未验证签名绕过JWT认证 |网络安全学院</a></p>
+<p><strong>原理</strong>:<br>由于服务器未对<code>jwt</code>签名进行验证,导致任何人生成的<code>jwt</code>都可以通过认证</p>
+<p><strong>靶场复现</strong>:<br>准备工具:<br><code>burpsuite</code>加上<code>jwt editor</code>插件拓展</p>
+<p><strong>目的</strong>:<br>伪造用户访问后台<code>/admin</code>,越权删除账户<code>carlos</code></p>
+<p>1.启动靶场,登录账号密码 <code>wiener:peter</code>,抓取带有自身jwt的数据包进行修改<br><img src="/images/jwt-bypass/01-login-capture.png" loading='lazy'><br>显示401 未授权,需要<code>administrator</code>用户才可以访问<code>/admin</code><br><img src="/images/jwt-bypass/02-401-unauthorized.png" loading='lazy'></p>
+<p>2.发送到<code>repeater</code>模块,点击<code>Json Web Token</code>直接修改sub的值为<code>administrator</code><br><img src="/images/jwt-bypass/03-modify-sub.png" loading='lazy'></p>
+<p>成功<code>200</code><br><img src="/images/jwt-bypass/04-success-200.png" loading='lazy'></p>
+<p>可以来到浏览器替换jwt访问<code>/admin</code>页面点击删除,也可以直接在<code>burpsuit</code>上修改<code>url</code>访问路径<code>/admin/delete?username=carlos</code>删除用户<br>这里我替换好了<br><img src="/images/jwt-bypass/05-replace-jwt.png" loading='lazy'><br>这里直接删除就好了</p>
+<h2 id="二-通过有缺陷的签名验证实现JWT认证绕过"><a href="#二-通过有缺陷的签名验证实现JWT认证绕过" class="headerlink" title="二.通过有缺陷的签名验证实现JWT认证绕过"></a>二.通过有缺陷的签名验证实现JWT认证绕过</h2><p><strong>靶场地址</strong>:<br><a target="_blank" rel="noopener" href="https://portswigger.net/web-security/jwt/lab-jwt-authentication-bypass-via-flawed-signature-verification">实验：通过有缺陷的签名验证绕过JWT认证 |网络安全学院</a></p>
+<p><strong>原理:</strong><br>服务器允许签名算法为空,可以将签名算法改成<code>none</code>,从而伪造签名</p>
+<p><strong>复现</strong>:<br>1.前面的一系列登录,抓包,操作与上一个一致,只有修改签名使用的算法,改成<code>none</code>即可<br><img src="/images/jwt-bypass/06-none-algorithm.png" loading='lazy'><br>修改之后<br><img src="/images/jwt-bypass/07-none-modified.png" loading='lazy'><br>由此401变成200,可以重复上一个操作了,将有效jwt复制或者直接接口删除用户</p>
+<h2 id="三-通过弱签名密钥绕过JWT认证"><a href="#三-通过弱签名密钥绕过JWT认证" class="headerlink" title="三.通过弱签名密钥绕过JWT认证"></a>三.通过弱签名密钥绕过JWT认证</h2><p><strong>靶场地址</strong>:<br><a target="_blank" rel="noopener" href="https://portswigger.net/web-security/jwt/lab-jwt-authentication-bypass-via-weak-signing-key">实验室：通过弱签名密钥绕过JWT认证 |网络安全学院</a></p>
+<p><strong>准备工具</strong>:<br><a target="_blank" rel="noopener" href="https://github.com/ticarpi/jwt_tool.git">jwt_tool</a>工具</p>
+<p><strong>原理:</strong><br>由于签名使用对称加密,并且加密的密钥泄露或者使用的弱密码造成攻击者可以使用该密钥伪造jwt</p>
+<p>复现:</p>
+<p>1.登录,抓包,获取<code>jwt</code><br><img src="/images/jwt-bypass/08-jwt-capture-weak.png" loading='lazy'></p>
+<p>2.使用<code>jwt_tool</code>工具进行破解</p>
+<p>字典在题目上给了<code>jwt.secrets.list</code>文件</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">python jwt_tool.py &lt;JWT&gt; -C -d jwt.secrets.list</span><br></pre></td></tr></table></figure>
+<p><img src="/images/jwt-bypass/09-jwt-tool-crack.png" loading='lazy'><br>成功获取了密码</p>
+<p>3.使用<a target="_blank" rel="noopener" href="https://www.jwt.io/">jwt.io</a>网站使用密码验证,并且修改<br><strong>验证</strong><br><img src="/images/jwt-bypass/10-jwt-io-verify.png" loading='lazy'><br><strong>修改</strong><br><img src="/images/jwt-bypass/11-jwt-io-modify.png" loading='lazy'></p>
+<p>将右边的有效<code>jwt</code>复制即可,同上</p>
+<h2 id="四-通过JWK头注入实现JWT认证绕过"><a href="#四-通过JWK头注入实现JWT认证绕过" class="headerlink" title="四.通过JWK头注入实现JWT认证绕过"></a>四.通过JWK头注入实现JWT认证绕过</h2><p><strong>靶场地址</strong>:<br><a target="_blank" rel="noopener" href="https://portswigger.net/web-security/jwt/lab-jwt-authentication-bypass-via-jwk-header-injection">实验：通过JWK头注入实现JWT认证绕过 |Web Security Academy</a></p>
+<p><strong>原理:</strong><br><code>JWK</code>内嵌公钥攻击,就是<code>jwt</code>将公钥放在头部,攻击者通过修改头部控制 <code>JWT</code> 验证所使用的公钥,从而使攻击者变成了签发<code> JWT</code> 的人.</p>
+<p><code>JWT header</code> 允许：</p>
+<figure class="highlight json"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line"><span class="punctuation">&#123;</span>  </span><br><span class="line"> <span class="attr">&quot;alg&quot;</span><span class="punctuation">:</span><span class="string">&quot;RS256&quot;</span><span class="punctuation">,</span>  </span><br><span class="line"> <span class="attr">&quot;jwk&quot;</span><span class="punctuation">:</span><span class="punctuation">&#123;</span>  </span><br><span class="line">   <span class="attr">&quot;kty&quot;</span><span class="punctuation">:</span><span class="string">&quot;RSA&quot;</span><span class="punctuation">,</span>  </span><br><span class="line">   <span class="attr">&quot;n&quot;</span><span class="punctuation">:</span><span class="string">&quot;攻击者公钥&quot;</span><span class="punctuation">,</span>  </span><br><span class="line">   <span class="attr">&quot;e&quot;</span><span class="punctuation">:</span><span class="string">&quot;AQAB&quot;</span>  </span><br><span class="line"> <span class="punctuation">&#125;</span>  </span><br><span class="line"><span class="punctuation">&#125;</span></span><br></pre></td></tr></table></figure>
+
+<p>如果服务器：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">直接使用 header.jwk 验证</span><br></pre></td></tr></table></figure>
+
+<p>攻击者：</p>
+<ul>
+<li>用自己私钥签名</li>
+<li>把公钥放 header</li>
+</ul>
+<p>服务器验证成功。</p>
+<p><strong>复现:</strong></p>
+<p>1.获取带有自己<code>jwt</code>的<code>/admin</code>包发送到<code>repeater</code>模块,使用<code>jwt editor</code>生成新的<code>rsa key</code><br><img src="/images/jwt-bypass/12-generate-rsa-key1.png" loading='lazy'><br><img src="/images/jwt-bypass/13-generate-rsa-key2.png" loading='lazy'><br>成功生成<br><img src="/images/jwt-bypass/14-key-generated.png" loading='lazy'></p>
+<p>2.在<code>repeater</code>模块,注入自己的<code>rsa公钥</code><br><img src="/images/jwt-bypass/15-inject-jwk.png" loading='lazy'></p>
+<p>3.修改用户之后还要点一下<code>sign</code>进行签名<br><img src="/images/jwt-bypass/16-sign-jwt1.png" loading='lazy'><br><img src="/images/jwt-bypass/17-sign-jwt2.png" loading='lazy'></p>
+<p><mark>注意</mark>:如果生成过多个key的话,要选择对应的,不要选错了</p>
+<p>4.发送数据,已经变成200,可以访问了,可以直接删除用户了</p>
+<h2 id="五-通过JKU头注入绕过JWT认证"><a href="#五-通过JKU头注入绕过JWT认证" class="headerlink" title="五.通过JKU头注入绕过JWT认证"></a>五.通过JKU头注入绕过JWT认证</h2><p><strong>靶场地址</strong>:<br><a target="_blank" rel="noopener" href="https://portswigger.net/web-security/jwt/lab-jwt-authentication-bypass-via-jku-header-injection">实验：通过JKU头注入绕过JWT认证 |网络安全学院</a></p>
+<p><strong>原理:</strong><br>与上一个类似,上一个是直接使用头部的公钥进行验证,这一个则是头部使用<code>jku</code>字段,加载远程的公钥字段,攻击者只需要搭建一个远程服务器构造特定的返回公钥值,就可以实现绕过认证.</p>
+<p><code>JWT header</code> 支持字段：</p>
+<figure class="highlight json"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line"><span class="punctuation">&#123;</span></span><br><span class="line">  <span class="attr">&quot;alg&quot;</span><span class="punctuation">:</span> <span class="string">&quot;RS256&quot;</span><span class="punctuation">,</span></span><br><span class="line">  <span class="attr">&quot;jku&quot;</span><span class="punctuation">:</span> <span class="string">&quot;https://attacker.com/jwks.json&quot;</span><span class="punctuation">,</span></span><br><span class="line">  <span class="attr">&quot;kid&quot;</span><span class="punctuation">:</span> <span class="string">&quot;hack&quot;</span></span><br><span class="line"><span class="punctuation">&#125;</span></span><br></pre></td></tr></table></figure>
+
+<p><code>jku</code> &#x3D; JSON Web Key URL<br>含义:指定<code> JWKS</code> 地址</p>
+<p><code>JWKS</code>格式:</p>
+<figure class="highlight json"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line"><span class="punctuation">&#123;</span>  </span><br><span class="line"><span class="attr">&quot;keys&quot;</span><span class="punctuation">:</span><span class="punctuation">[</span>  </span><br><span class="line">    <span class="punctuation">&#123;</span>  </span><br><span class="line">    <span class="attr">&quot;kid&quot;</span><span class="punctuation">:</span><span class="string">&quot;hack&quot;</span><span class="punctuation">,</span>  </span><br><span class="line">    <span class="attr">&quot;kty&quot;</span><span class="punctuation">:</span><span class="string">&quot;RSA&quot;</span><span class="punctuation">,</span>  </span><br><span class="line">    <span class="attr">&quot;n&quot;</span><span class="punctuation">:</span><span class="string">&quot;攻击者公钥&quot;</span><span class="punctuation">,</span>  </span><br><span class="line">    <span class="attr">&quot;e&quot;</span><span class="punctuation">:</span><span class="string">&quot;AQAB&quot;</span>  </span><br><span class="line">    <span class="punctuation">&#125;</span>  </span><br><span class="line">   <span class="punctuation">]</span>  </span><br><span class="line"><span class="punctuation">&#125;</span></span><br></pre></td></tr></table></figure>
+
+<p><strong>复现:</strong><br>1.同上获取数据包,并且通过<code>jwt editor</code>生成<code>rsa key</code><br><img src="/images/jwt-bypass/18-jku-generate-key.png" loading='lazy'></p>
+<p>2.复制<code>jwk</code><br><img src="/images/jwt-bypass/19-jku-copy-jwk.png" loading='lazy'></p>
+<p>3.去提供的漏洞服务器,构造恶意<code>url</code><br><img src="/images/jwt-bypass/20-jku-exploit-server.png" loading='lazy'></p>
+<p>将刚刚复制的<code>jwk</code>放进以下<code>keys</code>里面,构造有效<code>jwks</code>,并且放到返回中</p>
+<figure class="highlight json"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line"><span class="punctuation">&#123;</span>  </span><br><span class="line"><span class="attr">&quot;keys&quot;</span><span class="punctuation">:</span><span class="punctuation">[</span>  </span><br><span class="line">   </span><br><span class="line">   <span class="punctuation">]</span>  </span><br><span class="line"><span class="punctuation">&#125;</span></span><br></pre></td></tr></table></figure>
+
+<p>添加之后</p>
+<figure class="highlight json"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line"><span class="punctuation">&#123;</span>  </span><br><span class="line"><span class="attr">&quot;keys&quot;</span><span class="punctuation">:</span><span class="punctuation">[</span>  </span><br><span class="line">    <span class="punctuation">&#123;</span></span><br><span class="line">        <span class="attr">&quot;kty&quot;</span><span class="punctuation">:</span> <span class="string">&quot;RSA&quot;</span><span class="punctuation">,</span></span><br><span class="line">        <span class="attr">&quot;e&quot;</span><span class="punctuation">:</span> <span class="string">&quot;AQAB&quot;</span><span class="punctuation">,</span></span><br><span class="line">        <span class="attr">&quot;kid&quot;</span><span class="punctuation">:</span> <span class="string">&quot;fd9a2045-9d42-4952-919a-93a1e35a56ff&quot;</span><span class="punctuation">,</span></span><br><span class="line">        <span class="attr">&quot;n&quot;</span><span class="punctuation">:</span> <span class="string">&quot;uKtgYTLgMV3BBvLnLfcn_bSN-tRIbP_1oY7Gu3IxY51hLOSIPKiYeRbiI2fEZBmex6JJ7_YRf9SnQBIc_iyBOXNoZnUUZ5qJzPaI1O2mvmQhnXFHkcuMwneSyxQ1lok1SzeL45AalXwMwANCVqUz83VEziJrNc3fFS0RtoSYzsf3v6uJ82QsMWJ-QTZNhUibvd3BCOIh8aLL-IzFk48fRwcz3CBn0jgtNcx8OG97C6jt04vp0DYhf5ykdLBbzEb9UnM4HKVTrZXdNB2IwYMfPmwfXCoq-5cOLvC7i_mYsPdS6QmQyezTK824nvgKHA-qXO-wysFoQBlVKmJOM3avBQ&quot;</span></span><br><span class="line">    <span class="punctuation">&#125;</span> </span><br><span class="line">   <span class="punctuation">]</span>  </span><br><span class="line"><span class="punctuation">&#125;</span></span><br></pre></td></tr></table></figure>
+
+<p><img src="/images/jwt-bypass/21-jwks-payload.png" loading='lazy'></p>
+<p>复制恶意url:<br><code>https://exploit-0a9300cb04f1772a82f3bec4013d000e.exploit-server.net/exploit</code></p>
+<p>4.回到<code>burpsuite</code>的<code>repeater</code>模块,<code>json web token</code>添加头部字段<code>jku</code>,并且将<code>kid</code>修改成我们刚刚生成的<code>kid</code>,还有<code>administrator</code><br><img src="/images/jwt-bypass/22-jku-header1.png" loading='lazy'><br><img src="/images/jwt-bypass/23-jku-header2.png" loading='lazy'></p>
+<p>5.最后<code>sign</code>签名,发包,成功200<br><img src="/images/jwt-bypass/24-jku-success.png" loading='lazy'></p>
+<h2 id="六-通过kid头路径遍历实现JWT认证绕过"><a href="#六-通过kid头路径遍历实现JWT认证绕过" class="headerlink" title="六. 通过kid头路径遍历实现JWT认证绕过"></a>六. 通过kid头路径遍历实现JWT认证绕过</h2><p><strong>靶场地址</strong>:<br><a target="_blank" rel="noopener" href="https://portswigger.net/web-security/jwt/lab-jwt-authentication-bypass-via-kid-header-path-traversal">实验：通过kid头路径穿越JWT认证 |网络安全学院</a></p>
+<p><strong>原理</strong>:<br>有些代码写成</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">key = open(&quot;/keys/&quot; + kid + &quot;.pem&quot;)</span><br></pre></td></tr></table></figure>
+
+<p>通过头部的<code>kid</code>遍历本地的签名文件来作为jwt的签名<br>攻击者可以通过使用<code>../../</code>使服务器读取其他目录的文件,进行签名,然而服务器根目录<code>/dev/null</code>会返回空<br>即可以使用这个来用空来<mark>验签</mark>,我们用空来<mark>签名</mark></p>
+<p><strong>复现</strong>:<br>1.一如既往登录将数据包发送到<code>repeater</code>,使用<code>jwt editor</code> 生成<code>symmetric key</code><br><img src="/images/jwt-bypass/25-kid-symmetric-key.png" loading='lazy'></p>
+<p>2.将k改成<code>AA==</code>,<code>AA==</code>是空的<code>base64编码</code><br><img src="/images/jwt-bypass/26-kid-empty-key.png" loading='lazy'></p>
+<p>3.回到<code>repeater</code>模块的<code>json web token</code>,将kid改成<code>../../../../../../../dev/null</code>,跳出到根目录的<code>/dev/null</code>,<code>administrator</code>记得修改<br><img src="/images/jwt-bypass/27-kid-path-traversal.png" loading='lazy'></p>
+<p>4.签名jwt,点<code>Sign</code>选择刚刚生成的key,确认<br><img src="/images/jwt-bypass/28-kid-sign.png" loading='lazy'></p>
+<p>5.成功200<br><img src="/images/jwt-bypass/29-kid-success.png" loading='lazy'><br><code>本文章内容来源:</code><a target="_blank" rel="noopener" href="https://www.cnblogs.com/hzhsec/p/19701592.html">https://www.cnblogs.com/hzhsec/p/19701592.html</a><code>,仅作为个人笔记使用</code></p>
+</article><div class="post-copyright"><div class="post-copyright__author"><span class="post-copyright-meta"><i class="fas fa-circle-user fa-fw"></i>文章作者: </span><span class="post-copyright-info"><a href="https://luaihua.github.io">忆念</a></span></div><div class="post-copyright__type"><span class="post-copyright-meta"><i class="fas fa-square-arrow-up-right fa-fw"></i>文章链接: </span><span class="post-copyright-info"><a href="https://luaihua.github.io/2026/06/06/Burpsuite%E9%9D%B6%E5%9C%BA-JWT%E6%BC%8F%E6%B4%9E%E5%8E%9F%E7%90%86%E6%80%BB%E7%BB%93%E5%8F%8A%E5%A4%8D%E7%8E%B0/">https://luaihua.github.io/2026/06/06/Burpsuite%E9%9D%B6%E5%9C%BA-JWT%E6%BC%8F%E6%B4%9E%E5%8E%9F%E7%90%86%E6%80%BB%E7%BB%93%E5%8F%8A%E5%A4%8D%E7%8E%B0/</a></span></div><div class="post-copyright__notice"><span class="post-copyright-meta"><i class="fas fa-circle-exclamation fa-fw"></i>版权声明: </span><span class="post-copyright-info">本博客所有文章除特别声明外，均采用 <a href="https://creativecommons.org/licenses/by-nc-sa/4.0/" target="_blank">CC BY-NC-SA 4.0</a> 许可协议。转载请注明来源 <a href="https://luaihua.github.io" target="_blank">Hello World</a>！</span></div></div><div class="tag_share"><div class="post-meta__tag-list"><a class="post-meta__tags" href="/tags/JWT/">JWT</a></div><div class="post-share"><div class="social-share" data-image="/images/tx6.png" data-sites="facebook,x,wechat,weibo,qq"></div><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/butterfly-extsrc@1.1.6/sharejs/dist/css/share.min.css" media="print" onload="this.media='all'"><script src="https://cdn.jsdelivr.net/npm/butterfly-extsrc@1.1.6/sharejs/dist/js/social-share.min.js" defer></script></div></div><nav class="pagination-post" id="pagination"><a class="pagination-related full-width" href="/2026/06/05/%5B%E7%BD%91%E9%BC%8E%E6%9D%AF%202020%20%E6%9C%B1%E9%9B%80%E7%BB%84%5Dphpweb(%E5%8F%8D%E5%BA%8F%E5%88%97%E5%8C%96+linux%E5%91%BD%E4%BB%A4%E6%9F%A5%E8%AF%A2)/" title="[网鼎杯 2020 朱雀组]phpweb(反序列化+linux命令执行)"><div class="cover" style="background: var(--default-bg-color)"></div><div class="info text-right"><div class="info-1"><div class="info-item-1">下一篇</div><div class="info-item-2">[网鼎杯 2020 朱雀组]phpweb(反序列化+linux命令执行)</div></div><div class="info-2"><div class="info-item-1">访问题目地址，看到一个简单的页面，背景图，以及一段 JavaScript 代码，页面会在 5 秒后自动提交一个表单。 页面分析抓包查看源码 页面会自动提交 func=date 和 p=Y-m-d h:i:s a 两个参数，返回当前时间。这刚好和data(“Y-m-d h:i:s a”)格式一致，所以猜测func是一个函数，p是函数的参数 源码获取尝试用 highlight_file 函数读取源码： 1POST: func=highlight_file&amp;p=index.php  成功获取到完整源码 123456789101112131415161718192021222324252627282930313233343536373839404142&lt;?php$disable_fun = array(    &quot;exec&quot;,&quot;shell_exec&quot;,&quot;system&quot;,&quot;passthru&quot;,&quot;proc_open&quot;,&quot;show_source&quot;,&quot;ph...</div></div></div></a></nav></div><div class="aside-content" id="aside-content"><div class="card-widget card-info text-center"><div class="avatar-img"><img src="/images/tx6.png" onerror="this.onerror=null;this.src='/img/friend_404.gif'" alt="avatar"/ loading='lazy'></div><div class="author-info-name">忆念</div><div class="author-info-description"></div><div class="site-data"><a href="/archives/"><div class="headline">文章</div><div class="length-num">36</div></a><a href="/tags/"><div class="headline">标签</div><div class="length-num">19</div></a><a href="/categories/"><div class="headline">分类</div><div class="length-num">1</div></a></div><a id="card-info-btn" target="_blank" rel="noopener" href="https://github.com/luaihua/luaihua.github.io"><i class="fab fa-github"></i><span>我的GitHub</span></a></div><div class="card-widget card-announcement"><div class="item-headline"><i class="fas fa-bullhorn fa-shake"></i><span>公告</span></div><div class="announcement_content">欢迎来到我的博客</div></div><div class="sticky_layout"><div class="card-widget" id="card-toc"><div class="item-headline"><i class="fas fa-stream"></i><span>目录</span><span class="toc-percentage"></span></div><div class="toc-content"><ol class="toc"><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%B8%80-%E6%9C%AA%E9%AA%8C%E8%AF%81%E7%AD%BE%E5%90%8D%E7%BB%95%E8%BF%87JWT%E8%AE%A4%E8%AF%81"><span class="toc-number">1.</span> <span class="toc-text">一.未验证签名绕过JWT认证</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%BA%8C-%E9%80%9A%E8%BF%87%E6%9C%89%E7%BC%BA%E9%99%B7%E7%9A%84%E7%AD%BE%E5%90%8D%E9%AA%8C%E8%AF%81%E5%AE%9E%E7%8E%B0JWT%E8%AE%A4%E8%AF%81%E7%BB%95%E8%BF%87"><span class="toc-number">2.</span> <span class="toc-text">二.通过有缺陷的签名验证实现JWT认证绕过</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%B8%89-%E9%80%9A%E8%BF%87%E5%BC%B1%E7%AD%BE%E5%90%8D%E5%AF%86%E9%92%A5%E7%BB%95%E8%BF%87JWT%E8%AE%A4%E8%AF%81"><span class="toc-number">3.</span> <span class="toc-text">三.通过弱签名密钥绕过JWT认证</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E5%9B%9B-%E9%80%9A%E8%BF%87JWK%E5%A4%B4%E6%B3%A8%E5%85%A5%E5%AE%9E%E7%8E%B0JWT%E8%AE%A4%E8%AF%81%E7%BB%95%E8%BF%87"><span class="toc-number">4.</span> <span class="toc-text">四.通过JWK头注入实现JWT认证绕过</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%BA%94-%E9%80%9A%E8%BF%87JKU%E5%A4%B4%E6%B3%A8%E5%85%A5%E7%BB%95%E8%BF%87JWT%E8%AE%A4%E8%AF%81"><span class="toc-number">5.</span> <span class="toc-text">五.通过JKU头注入绕过JWT认证</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E5%85%AD-%E9%80%9A%E8%BF%87kid%E5%A4%B4%E8%B7%AF%E5%BE%84%E9%81%8D%E5%8E%86%E5%AE%9E%E7%8E%B0JWT%E8%AE%A4%E8%AF%81%E7%BB%95%E8%BF%87"><span class="toc-number">6.</span> <span class="toc-text">六. 通过kid头路径遍历实现JWT认证绕过</span></a></li></ol></div></div><div class="card-widget card-recent-post"><div class="item-headline"><i class="fas fa-history"></i><span>最新文章</span></div><div class="aside-list"><div class="aside-list-item no-cover"><div class="content"><a class="title" href="/2026/06/06/Burpsuite%E9%9D%B6%E5%9C%BA-JWT%E6%BC%8F%E6%B4%9E%E5%8E%9F%E7%90%86%E6%80%BB%E7%BB%93%E5%8F%8A%E5%A4%8D%E7%8E%B0/" title="Burpsuite靶场-JWT漏洞原理总结及复现">Burpsuite靶场-JWT漏洞原理总结及复现</a><time datetime="2026-06-06T13:00:00.000Z" title="发表于 2026-06-06 21:00:00">2026-06-06</time></div></div><div class="aside-list-item no-cover"><div class="content"><a class="title" href="/2026/06/05/%5B%E7%BD%91%E9%BC%8E%E6%9D%AF%202020%20%E6%9C%B1%E9%9B%80%E7%BB%84%5Dphpweb(%E5%8F%8D%E5%BA%8F%E5%88%97%E5%8C%96+linux%E5%91%BD%E4%BB%A4%E6%9F%A5%E8%AF%A2)/" title="[网鼎杯 2020 朱雀组]phpweb(反序列化+linux命令执行)">[网鼎杯 2020 朱雀组]phpweb(反序列化+linux命令执行)</a><time datetime="2026-06-05T12:14:00.000Z" title="发表于 2026-06-05 20:14:00">2026-06-05</time></div></div><div class="aside-list-item no-cover"><div class="content"><a class="title" href="/2026/06/03/%5BWesternCTF2018%5Dshrine(flask%E6%A8%A1%E6%9D%BF%E6%B3%A8%E5%85%A5%E7%BB%95%E8%BF%87config%E8%BF%87%E6%BB%A4)/" title="[WesternCTF2018] shrine(Flask模板注入绕过config过滤)">[WesternCTF2018] shrine(Flask模板注入绕过config过滤)</a><time datetime="2026-06-03T08:50:00.000Z" title="发表于 2026-06-03 16:50:00">2026-06-03</time></div></div><div class="aside-list-item no-cover"><div class="content"><a class="title" href="/2026/06/03/%5B%E5%BC%BA%E7%BD%91%E6%9D%AF%202019%5D%E9%9A%8F%E4%BE%BF%E6%B3%A8(%E5%A0%86%E5%8F%A0%E6%B3%A8%E5%85%A5+PREPARE-EXECUTE+CONCAT%E6%8B%BC%E6%8E%A5%E5%AD%97%E7%AC%A6%E4%B8%B2%20%E7%BB%95%E8%BF%87)/" title="[强网杯 2019]随便注(堆叠注入+PREPARE/EXECUTE+CONCAT拼接字符串 绕过)">[强网杯 2019]随便注(堆叠注入+PREPARE/EXECUTE+CONCAT拼接字符串 绕过)</a><time datetime="2026-06-03T04:30:00.000Z" title="发表于 2026-06-03 12:30:00">2026-06-03</time></div></div><div class="aside-list-item no-cover"><div class="content"><a class="title" href="/2026/06/02/%5BHCTF%202018%5DWarmUp/" title="[HCTF 2018]WarmUp(文件包含绕过)">[HCTF 2018]WarmUp(文件包含绕过)</a><time datetime="2026-06-02T06:30:00.000Z" title="发表于 2026-06-02 14:30:00">2026-06-02</time></div></div></div></div></div></div></main><footer id="footer"><div class="footer-other"><div class="footer-copyright"><span class="copyright">&copy;&nbsp;2025 - 2026 By 忆念</span><span class="framework-info"><span>框架 </span><a target="_blank" rel="noopener" href="https://hexo.io">Hexo 8.1.1</a><span class="footer-separator">|</span><span>主题 </span><a target="_blank" rel="noopener" href="https://github.com/jerryc127/hexo-theme-butterfly">Butterfly 5.5.4</a></span></div><div class="footer_custom_text"><i class="fas fa-pencil-alt"></i> 总字数 <span id="wordCount">0</span> 字 | <i class="fas fa-heartbeat"></i> 已运行 <span id="runtime"></span></div></div></footer></div><div id="rightside"><div id="rightside-config-hide"><button id="readmode" type="button" title="阅读模式"><i class="fas fa-book-open"></i></button><button id="darkmode" type="button" title="日间和夜间模式切换"><i class="fas fa-adjust"></i></button><button id="hide-aside-btn" type="button" title="单栏和双栏切换"><i class="fas fa-arrows-alt-h"></i></button></div><div id="rightside-config-show"><button id="rightside-config" type="button" title="设置"><i class="fas fa-cog fa-spin"></i></button><button class="close" id="mobile-toc-button" type="button" title="目录"><i class="fas fa-list-ul"></i></button><button id="go-up" type="button" title="回到顶部"><span class="scroll-percent"></span><i class="fas fa-arrow-up"></i></button></div></div><div><script src="/js/utils.js?v=5.5.4"></script><script src="/js/main.js?v=5.5.4"></script><script src="https://cdn.jsdelivr.net/npm/@fancyapps/ui@6.1.9/dist/fancybox/fancybox.umd.min.js"></script><div class="js-pjax"></div><script>window.onload=function(){var n=document.createElement('canvas');n.id='snow-canvas';n.style='position:fixed;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:9999';document.body.appendChild(n);var c=n.getContext('2d'),w=window.innerWidth,h=window.innerHeight;n.width=w;n.height=h;var s=[];for(var i=0;i<100;i++){s.push({x:Math.random()*w,y:Math.random()*h,r:Math.random()*4+1,d:Math.random()*1+0.5})}function d(){c.clearRect(0,0,w,h);c.fillStyle='rgba(255,255,255,0.8)';c.beginPath();for(var i=0;i<s.length;i++){var p=s[i];c.moveTo(p.x,p.y);c.arc(p.x,p.y,p.r,0,Math.PI*2,true);p.y+=p.d;if(p.y>h){p.y=-p.r;p.x=Math.random()*w}}c.fill();requestAnimationFrame(d)}d();window.addEventListener('resize',function(){w=window.innerWidth;h=window.innerHeight;n.width=w;n.height=h})};</script><canvas class="fireworks" mobile="true"></canvas><script src="https://cdn.jsdelivr.net/npm/butterfly-extsrc@1.1.6/dist/fireworks.min.js"></script><script id="click-heart" src="https://cdn.jsdelivr.net/npm/butterfly-extsrc@1.1.6/dist/click-heart.min.js" async="async" mobile="true"></script><script id="click-show-text" src="https://cdn.jsdelivr.net/npm/butterfly-extsrc@1.1.6/dist/click-show-text.min.js" data-mobile="true" data-text="❤️ 开心,✨ 努力,🍀 幸运" data-fontsize="15px" data-random="false" async="async"></script><script async data-pjax src="//busuanzi.ibruce.info/busuanzi/2.3/busuanzi.pure.mini.js"></script><div id="local-search"><div class="search-dialog"><nav class="search-nav"><span class="search-dialog-title">搜索</span><i class="fas fa-spinner fa-pulse" id="loading-status" hidden="hidden"></i><button class="search-close-button"><i class="fas fa-times"></i></button></nav><div class="text-center" id="loading-database"><i class="fas fa-spinner fa-pulse"></i><span>  数据加载中</span></div><div class="local-search-input"><input placeholder="搜索文章" type="text"/></div><hr/><div id="local-search-results"></div><div class="ais-Pagination" id="local-search-pagination" style="display:none;"><ul class="ais-Pagination-list"></ul></div><div id="local-search-stats"></div></div><div id="search-mask"></div><script src="/js/search/local-search.js?v=5.5.4"></script></div></div></body></html>
