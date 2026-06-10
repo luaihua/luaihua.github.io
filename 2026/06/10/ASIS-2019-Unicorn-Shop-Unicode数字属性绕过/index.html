@@ -1,0 +1,415 @@
+<!DOCTYPE html><html lang="zh-CN" data-theme="light"><head><meta charset="UTF-8"><meta http-equiv="X-UA-Compatible" content="IE=edge"><meta name="viewport" content="width=device-width, initial-scale=1.0,viewport-fit=cover"><title>[ASIS 2019]Unicorn Shop — Unicode 数字属性绕过价格限制 | Hello World</title><meta name="author" content="忆念"><meta name="copyright" content="忆念"><meta name="format-detection" content="telephone=no"><meta name="theme-color" content="#ffffff"><meta name="description" content="题目描述进入题目是一个独角兽商店（Unicorn Shop），有四种独角兽商品：    Item ID Price English Spanish German Russian    1 2.0 black and white unicorn unicornio blanco y negro Schwarzweiss-Einhorn черно-белый единорог   2 5.0 uni">
+<meta property="og:type" content="article">
+<meta property="og:title" content="[ASIS 2019]Unicorn Shop — Unicode 数字属性绕过价格限制">
+<meta property="og:url" content="https://luaihua.github.io/2026/06/10/ASIS-2019-Unicorn-Shop-Unicode%E6%95%B0%E5%AD%97%E5%B1%9E%E6%80%A7%E7%BB%95%E8%BF%87/index.html">
+<meta property="og:site_name" content="Hello World">
+<meta property="og:description" content="题目描述进入题目是一个独角兽商店（Unicorn Shop），有四种独角兽商品：    Item ID Price English Spanish German Russian    1 2.0 black and white unicorn unicornio blanco y negro Schwarzweiss-Einhorn черно-белый единорог   2 5.0 uni">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:image" content="https://luaihua.github.io/images/tx6.png">
+<meta property="article:published_time" content="2026-06-10T09:00:00.000Z">
+<meta property="article:modified_time" content="2026-06-10T11:14:38.021Z">
+<meta property="article:author" content="忆念">
+<meta property="article:tag" content="Unicode">
+<meta property="article:tag" content="编码漏洞">
+<meta property="article:tag" content="解题wp">
+<meta property="article:tag" content="转码绕过">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:image" content="https://luaihua.github.io/images/tx6.png"><script type="application/ld+json">{
+  "@context": "https://schema.org",
+  "@type": "BlogPosting",
+  "headline": "[ASIS 2019]Unicorn Shop — Unicode 数字属性绕过价格限制",
+  "url": "https://luaihua.github.io/2026/06/10/ASIS-2019-Unicorn-Shop-Unicode%E6%95%B0%E5%AD%97%E5%B1%9E%E6%80%A7%E7%BB%95%E8%BF%87/",
+  "image": "https://luaihua.github.io/images/tx6.png",
+  "datePublished": "2026-06-10T09:00:00.000Z",
+  "dateModified": "2026-06-10T11:14:38.021Z",
+  "author": [
+    {
+      "@type": "Person",
+      "name": "忆念",
+      "url": "https://luaihua.github.io"
+    }
+  ]
+}</script><link rel="shortcut icon" href="/images/bj.webp"><link rel="canonical" href="https://luaihua.github.io/2026/06/10/ASIS-2019-Unicorn-Shop-Unicode%E6%95%B0%E5%AD%97%E5%B1%9E%E6%80%A7%E7%BB%95%E8%BF%87/index.html"><link rel="preconnect" href="//cdn.jsdelivr.net"/><link rel="preconnect" href="//busuanzi.ibruce.info"/><link rel="stylesheet" href="/css/index.css?v=5.5.4"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@7.1.0/css/all.min.css"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fancyapps/ui@6.1.9/dist/fancybox/fancybox.min.css" media="print" onload="this.media='all'"><script>
+    (() => {
+      
+    const saveToLocal = {
+      set: (key, value, ttl) => {
+        if (!ttl) return
+        const expiry = Date.now() + ttl * 86400000
+        localStorage.setItem(key, JSON.stringify({ value, expiry }))
+      },
+      get: key => {
+        const itemStr = localStorage.getItem(key)
+        if (!itemStr) return undefined
+        const { value, expiry } = JSON.parse(itemStr)
+        if (Date.now() > expiry) {
+          localStorage.removeItem(key)
+          return undefined
+        }
+        return value
+      }
+    }
+
+    window.btf = {
+      saveToLocal,
+      getScript: (url, attr = {}) => new Promise((resolve, reject) => {
+        const script = document.createElement('script')
+        script.src = url
+        script.async = true
+        Object.entries(attr).forEach(([key, val]) => script.setAttribute(key, val))
+        script.onload = script.onreadystatechange = () => {
+          if (!script.readyState || /loaded|complete/.test(script.readyState)) resolve()
+        }
+        script.onerror = reject
+        document.head.appendChild(script)
+      }),
+      getCSS: (url, id) => new Promise((resolve, reject) => {
+        const link = document.createElement('link')
+        link.rel = 'stylesheet'
+        link.href = url
+        if (id) link.id = id
+        link.onload = link.onreadystatechange = () => {
+          if (!link.readyState || /loaded|complete/.test(link.readyState)) resolve()
+        }
+        link.onerror = reject
+        document.head.appendChild(link)
+      }),
+      addGlobalFn: (key, fn, name = false, parent = window) => {
+        if (!false && key.startsWith('pjax')) return
+        const globalFn = parent.globalFn || {}
+        globalFn[key] = globalFn[key] || {}
+        globalFn[key][name || Object.keys(globalFn[key]).length] = fn
+        parent.globalFn = globalFn
+      }
+    }
+  
+      
+      const activateDarkMode = () => {
+        document.documentElement.setAttribute('data-theme', 'dark')
+        if (document.querySelector('meta[name="theme-color"]') !== null) {
+          document.querySelector('meta[name="theme-color"]').setAttribute('content', '#0d0d0d')
+        }
+      }
+      const activateLightMode = () => {
+        document.documentElement.setAttribute('data-theme', 'light')
+        if (document.querySelector('meta[name="theme-color"]') !== null) {
+          document.querySelector('meta[name="theme-color"]').setAttribute('content', '#ffffff')
+        }
+      }
+
+      btf.activateDarkMode = activateDarkMode
+      btf.activateLightMode = activateLightMode
+
+      const theme = saveToLocal.get('theme')
+    
+          theme === 'dark' ? activateDarkMode() : theme === 'light' ? activateLightMode() : null
+        
+      
+      const asideStatus = saveToLocal.get('aside-status')
+      if (asideStatus !== undefined) {
+        document.documentElement.classList.toggle('hide-aside', asideStatus === 'hide')
+      }
+    
+      
+    const detectApple = () => {
+      if (/iPad|iPhone|iPod|Macintosh/.test(navigator.userAgent)) {
+        document.documentElement.classList.add('apple')
+      }
+    }
+    detectApple()
+  
+    })()
+  </script><script>const GLOBAL_CONFIG = {
+  root: '/',
+  algolia: undefined,
+  localSearch: {"path":"/search.xml","preload":true,"top_n_per_article":1,"unescape":false,"pagination":{"enable":false,"hitsPerPage":8},"languages":{"hits_empty":"未找到符合您查询的内容：${query}","hits_stats":"共找到 ${hits} 篇文章"}},
+  translate: undefined,
+  highlight: {"plugin":"highlight.js","highlightCopy":true,"highlightLang":true,"highlightHeightLimit":false,"highlightFullpage":false,"highlightMacStyle":false},
+  copy: {
+    success: '复制成功',
+    error: '复制失败',
+    noSupport: '浏览器不支持'
+  },
+  relativeDate: {
+    homepage: false,
+    post: false
+  },
+  runtime: '',
+  dateSuffix: {
+    just: '刚刚',
+    min: '分钟前',
+    hour: '小时前',
+    day: '天前',
+    month: '个月前'
+  },
+  copyright: undefined,
+  lightbox: 'fancybox',
+  Snackbar: undefined,
+  infinitegrid: {
+    js: 'https://cdn.jsdelivr.net/npm/@egjs/infinitegrid@4.13.0/dist/infinitegrid.min.js',
+    buttonText: '加载更多'
+  },
+  isPhotoFigcaption: false,
+  islazyloadPlugin: false,
+  isAnchor: false,
+  percent: {
+    toc: true,
+    rightside: false,
+  },
+  autoDarkmode: false
+}</script><script id="config-diff">var GLOBAL_CONFIG_SITE = {
+  title: '[ASIS 2019]Unicorn Shop — Unicode 数字属性绕过价格限制',
+  isHighlightShrink: false,
+  isToc: true,
+  pageType: 'post'
+}</script><style>:root{--hl-bg:#000;--hltools-bg:#111;--hlnumber-bg:#000}figure.highlight table::-webkit-scrollbar-thumb,.container figure.highlight.default pre::-webkit-scrollbar-thumb{background:rgba(255,255,255,0.6)!important}@-moz-document url-prefix(){figure.highlight{scrollbar-color:rgba(255,255,255,0.6) transparent}}body{cursor:url("/img/diamond-sword-cursor.png") 0 0, auto}a,button,.site-page,.article-title,.article-meta__tags,[role=button],input,select,summary{cursor:url("/img/diamond-sword-cursor.png") 0 0, pointer}table, table th, table td{border-color:#000!important}[data-theme=dark] table,[data-theme=dark] table th,[data-theme=dark] table td{border-color:#333!important}</style><style>.article-meta-wrap .article-meta__tags{display:inline-block;padding:0 10px;border:1px solid #49b1f5;border-radius:10px;color:#49b1f5!important;font-size:.85em;transition:all .2s ease}.article-meta-wrap .article-meta__tags:hover{background:#49b1f5;color:#fff!important;text-decoration:none!important} #recent-posts .recent-post-item,#aside-content .card-widget,.layout .pagination>*:not(.space),#post{background:rgba(255,255,255,0.55)!important;-webkit-backdrop-filter:blur(5px);backdrop-filter:blur(5px)}[data-theme=dark] #recent-posts .recent-post-item,[data-theme=dark] #aside-content .card-widget,[data-theme=dark] .layout .pagination>*:not(.space),[data-theme=dark] #post{background:rgba(0,0,0,0.35)!important;-webkit-backdrop-filter:blur(5px);backdrop-filter:blur(5px)} #footer{background:rgba(0,0,0,0.3)!important;-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);border-top:1px solid rgba(73,177,245,0.2)!important;padding:20px 0!important}#footer::before{display:none!important}#footer .footer-other{text-align:center;opacity:.9}#footer .footer-other .footer-copyright{font-size:.9em;margin-bottom:6px}#footer .footer-other .footer_custom_text{font-size:.85em;color:var(--text-light)}#footer a{color:#49b1f5!important;transition:all .3s}#footer a:hover{color:#ff7242!important;text-shadow:0 0 8px rgba(73,177,245,0.5)}#footer .footer-separator{margin:0 8px;opacity:.4} </style><meta name="generator" content="Hexo 8.1.1"></head><body><div class="bg-animation" id="web_bg" style="background-image: url(/images/bj6.png);"></div><div id="sidebar"><div id="menu-mask"></div><div id="sidebar-menus"><div class="avatar-img text-center"><img src="/images/tx6.png" onerror="this.onerror=null;this.src='/img/friend_404.gif'" alt="avatar"/ loading='lazy'></div><div class="site-data text-center"><a href="/archives/"><div class="headline">文章</div><div class="length-num">37</div></a><a href="/tags/"><div class="headline">标签</div><div class="length-num">22</div></a><a href="/categories/"><div class="headline">分类</div><div class="length-num">0</div></a></div><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><i class="fa-fw fas fa-home"></i><span> 首页</span></a></div><div class="menus_item"><a class="site-page" href="/archives/"><i class="fa-fw fas fa-archive"></i><span> 归档</span></a></div><div class="menus_item"><a class="site-page" href="/categories/"><i class="fa-fw fas fa-folder-open"></i><span> 分类</span></a></div><div class="menus_item"><a class="site-page" href="/tags/"><i class="fa-fw fas fa-tags"></i><span> 标签</span></a></div></div></div></div><div class="post" id="body-wrap"><header class="post-bg fixed" id="page-header" style="background-image: url(/images/bj3.jpg);"><nav id="nav"><span id="blog-info"><a class="nav-site-title" href="/"><img class="site-icon" src="/images/bj.webp" alt="Logo" loading='lazy'><span class="site-name">Hello World</span></a><a class="nav-page-title" href="/"><span class="site-name">[ASIS 2019]Unicorn Shop — Unicode 数字属性绕过价格限制</span><span class="site-name"><i class="fa-solid fa-circle-arrow-left"></i><span>  返回首页</span></span></a></span><div id="menus"><div id="search-button"><span class="site-page social-icon search"><i class="fas fa-search fa-fw"></i><span> 搜索</span></span></div><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><i class="fa-fw fas fa-home"></i><span> 首页</span></a></div><div class="menus_item"><a class="site-page" href="/archives/"><i class="fa-fw fas fa-archive"></i><span> 归档</span></a></div><div class="menus_item"><a class="site-page" href="/categories/"><i class="fa-fw fas fa-folder-open"></i><span> 分类</span></a></div><div class="menus_item"><a class="site-page" href="/tags/"><i class="fa-fw fas fa-tags"></i><span> 标签</span></a></div></div><div id="toggle-menu"><span class="site-page"><i class="fas fa-bars fa-fw"></i></span></div></div></nav><div id="post-info"><h1 class="post-title">[ASIS 2019]Unicorn Shop — Unicode 数字属性绕过价格限制</h1><div id="post-meta"><div class="meta-firstline"><span class="post-meta-date"><i class="far fa-calendar-alt fa-fw post-meta-icon"></i><span class="post-meta-label">发表于</span><time class="post-meta-date-created" datetime="2026-06-10T09:00:00.000Z" title="发表于 2026-06-10 17:00:00">2026-06-10</time><span class="post-meta-separator">|</span><i class="fas fa-history fa-fw post-meta-icon"></i><span class="post-meta-label">更新于</span><time class="post-meta-date-updated" datetime="2026-06-10T11:14:38.021Z" title="更新于 2026-06-10 19:14:38">2026-06-10</time></span></div><div class="meta-secondline"><span class="post-meta-separator">|</span><span class="post-meta-wordcount"><i class="far fa-file-word fa-fw post-meta-icon"></i><span class="post-meta-label">总字数:</span><span class="word-count">1.5k</span><span class="post-meta-separator">|</span><i class="far fa-clock fa-fw post-meta-icon"></i><span class="post-meta-label">阅读时长:</span><span>6分钟</span></span><span class="post-meta-separator">|</span><span class="post-meta-pv-cv" id="" data-flag-title=""><i class="far fa-eye fa-fw post-meta-icon"></i><span class="post-meta-label">浏览量:</span><span id="busuanzi_value_page_pv"><i class="fa-solid fa-spinner fa-spin"></i></span></span></div></div></div></header><main class="layout" id="content-inner"><div id="post"><article class="container post-content" id="article-container"><h2 id="题目描述"><a href="#题目描述" class="headerlink" title="题目描述"></a>题目描述</h2><p>进入题目是一个独角兽商店（Unicorn Shop），有四种独角兽商品：</p>
+<table>
+<thead>
+<tr>
+<th>Item ID</th>
+<th align="center">Price</th>
+<th>English</th>
+<th>Spanish</th>
+<th>German</th>
+<th>Russian</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>1</td>
+<td align="center">2.0</td>
+<td>black and white unicorn</td>
+<td>unicornio blanco y negro</td>
+<td>Schwarzweiss-Einhorn</td>
+<td>черно-белый единорог</td>
+</tr>
+<tr>
+<td>2</td>
+<td align="center">5.0</td>
+<td>unicorn family</td>
+<td>familia unicornio</td>
+<td>Einhorn-Familie</td>
+<td>семья единорога</td>
+</tr>
+<tr>
+<td>3</td>
+<td align="center">8.0</td>
+<td>warrior unicorn</td>
+<td>guerrero unicornio</td>
+<td>Krieger Einhorn</td>
+<td>воин единорог</td>
+</tr>
+<tr>
+<td>4</td>
+<td align="center">1337.0</td>
+<td>ultra unicorn</td>
+<td>ultra unicornio</td>
+<td>ultra Einhorn</td>
+<td>ультра единорог</td>
+</tr>
+</tbody></table>
+<p>目标很明确：购买第 4 个商品 <strong>ultra unicorn</strong>（价格 1337.0）获取 flag。</p>
+<h2 id="探索过程"><a href="#探索过程" class="headerlink" title="探索过程"></a>探索过程</h2><h3 id="查看页面源码"><a href="#查看页面源码" class="headerlink" title="查看页面源码"></a>查看页面源码</h3><p>查看 HTML 源码，发现几个关键的注释：</p>
+<figure class="highlight html"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">&lt;--Ah,really important,seriously. --&gt;</span><br><span class="line">&lt;-- Don&#x27;t be frustrated by the same view,we&#x27;ve changed the challenge content.--&gt;</span><br><span class="line">&lt;--We still have some surprise for admin.password--&gt;</span><br></pre></td></tr></table></figure>
+
+<p>第一个注释 <code>&lt;!--Ah,really important,seriously. --&gt;</code> 标记在 <code>&lt;meta charset=&quot;utf-8&quot;&gt;</code> 后面——<strong>这暗示字符编码是解题的关键</strong>。</p>
+<h3 id="测试表单提交"><a href="#测试表单提交" class="headerlink" title="测试表单提交"></a>测试表单提交</h3><p>表单提交到 <code>/charge</code>，参数为 <code>id</code> 和 <code>price</code>。尝试各种输入：</p>
+<table>
+<thead>
+<tr>
+<th>id</th>
+<th>price</th>
+<th>返回信息</th>
+<th>分析</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>1</td>
+<td>2.0</td>
+<td>Only one char(?) allowed!</td>
+<td>price 参数不允许小数点</td>
+</tr>
+<tr>
+<td>1</td>
+<td>2</td>
+<td>Wrong commodity!</td>
+<td>单字符price，但商品不对</td>
+</tr>
+<tr>
+<td>4</td>
+<td>1337</td>
+<td>Only one char(?) allowed!</td>
+<td>price 超过1个字符被拒</td>
+</tr>
+<tr>
+<td>4</td>
+<td>1</td>
+<td>You don’t have enough money!</td>
+<td><strong>单字符price可提交，但钱不够</strong></td>
+</tr>
+<tr>
+<td>a</td>
+<td>1</td>
+<td>No commodity found!</td>
+<td>不存在该商品</td>
+</tr>
+</tbody></table>
+<p>关键发现：</p>
+<ol>
+<li><strong><code>price</code> 字段必须且只能是一个字符</strong></li>
+<li><strong><code>id=4&amp;price=1</code> 通过了字符检查但钱不够</strong>——说明后端对 price 做了数值比较</li>
+<li>ASCII 单字符数字最大是 <code>9</code>，远小于 1337</li>
+</ol>
+<p><strong>矛盾出现了</strong>：我们要用 $1337$ 买商品，但只能传 $1$ 个字符。</p>
+<h2 id="漏洞原理：Unicode-Numeric-Value-属性"><a href="#漏洞原理：Unicode-Numeric-Value-属性" class="headerlink" title="漏洞原理：Unicode Numeric Value 属性"></a>漏洞原理：Unicode Numeric Value 属性</h2><h3 id="Unicode-数字属性"><a href="#Unicode-数字属性" class="headerlink" title="Unicode 数字属性"></a>Unicode 数字属性</h3><p>Unicode 标准中，每个字符除了字形外，还带有<strong>元数据属性（Properties）</strong>。其中一个重要属性是 <strong>Numeric_Value</strong>（数字值），用于标记这个字符代表的数字。</p>
+<p>比如这些字符都有 Numeric_Value 属性：</p>
+<table>
+<thead>
+<tr>
+<th>字符</th>
+<th align="center">Unicode 代码点</th>
+<th align="center">Numeric_Value</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>4</code></td>
+<td align="center">U+0034</td>
+<td align="center">4</td>
+<td>ASCII 数字</td>
+</tr>
+<tr>
+<td><code>Ⅳ</code></td>
+<td align="center">U+2163</td>
+<td align="center">4</td>
+<td>罗马数字 4</td>
+</tr>
+<tr>
+<td><code>四</code></td>
+<td align="center">U+56DB</td>
+<td align="center">4</td>
+<td>中文数字</td>
+</tr>
+<tr>
+<td><code>৪</code></td>
+<td align="center">U+09EA</td>
+<td align="center">4</td>
+<td>孟加拉数字</td>
+</tr>
+<tr>
+<td><code>፼</code></td>
+<td align="center"><strong>U+137C</strong></td>
+<td align="center"><strong>10000</strong></td>
+<td>埃塞俄比亚音节（本题关键）</td>
+</tr>
+<tr>
+<td><code>ↂ</code></td>
+<td align="center">U+2182</td>
+<td align="center">10000</td>
+<td>罗马数字 10000</td>
+</tr>
+<tr>
+<td><code>ↇ</code></td>
+<td align="center">U+2187</td>
+<td align="center">50000</td>
+<td>罗马数字 50000</td>
+</tr>
+<tr>
+<td><code>ↈ</code></td>
+<td align="center">U+2188</td>
+<td align="center">100000</td>
+<td>罗马数字 100000</td>
+</tr>
+</tbody></table>
+<h3 id="PHP-的类型转换机制"><a href="#PHP-的类型转换机制" class="headerlink" title="PHP 的类型转换机制"></a>PHP 的类型转换机制</h3><p>后端 PHP 代码大概这样：</p>
+<figure class="highlight php"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// 检查字符长度</span></span><br><span class="line"><span class="keyword">if</span> (<span class="title function_ invoke__">mb_strlen</span>(<span class="variable">$_POST</span>[<span class="string">&#x27;price&#x27;</span>], <span class="string">&#x27;UTF-8&#x27;</span>) &gt; <span class="number">1</span>) &#123;</span><br><span class="line">    <span class="keyword">die</span>(<span class="string">&quot;Only one char(?) allowed!&quot;</span>);</span><br><span class="line">&#125;</span><br><span class="line"><span class="comment">// 数值比较 — 关键漏洞点</span></span><br><span class="line"><span class="keyword">if</span> (<span class="title function_ invoke__">floatval</span>(<span class="variable">$_POST</span>[<span class="string">&#x27;price&#x27;</span>]) &gt;= <span class="variable">$item</span>[<span class="string">&#x27;price&#x27;</span>]) &#123;</span><br><span class="line">    <span class="comment">// 购买成功，返回 flag</span></span><br><span class="line">&#125; <span class="keyword">else</span> &#123;</span><br><span class="line">    <span class="keyword">die</span>(<span class="string">&quot;You don&#x27;t have enough money!&quot;</span>);</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>当 PHP 执行 <code>floatval(&quot;፼&quot;)</code> 时，内部调用 ICU（International Components for Unicode）库，会<strong>识别该字符的 Unicode Numeric_Value 属性</strong>，返回 <code>10000.0</code>。</p>
+<p>于是：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">floatval(&quot;፼&quot;) → 10000.0</span><br><span class="line">10000.0 &gt;= 1337 → ✅ 通过检查</span><br></pre></td></tr></table></figure>
+
+<h3 id="漏洞本质"><a href="#漏洞本质" class="headerlink" title="漏洞本质"></a>漏洞本质</h3><blockquote>
+<p><strong>程序在”字符长度检查”和”数值比较”两个阶段，对字符的语义理解不一致</strong></p>
+</blockquote>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line">┌─ 长度检查 ────────────────────────┐</span><br><span class="line">│ mb_strlen(&quot;፼&quot;, &#x27;UTF-8&#x27;) → 1个字符 │  ✅ 通过</span><br><span class="line">└────────────────────────────────────┘</span><br><span class="line">         ↓</span><br><span class="line">┌─ 数值比较 ────────────────────────┐</span><br><span class="line">│ floatval(&quot;፼&quot;) → 10000.0          │</span><br><span class="line">│ 10000.0 &gt;= 1337 → true            │  ✅ 通过</span><br><span class="line">└────────────────────────────────────┘</span><br><span class="line">         ↓</span><br><span class="line">         🚩 获得 flag</span><br></pre></td></tr></table></figure>
+
+<ul>
+<li>长度检查时：它是 <strong>1 个字符</strong> ✅</li>
+<li>数值比较时：它是 <strong>10000</strong> ✅</li>
+</ul>
+<h2 id="解题过程"><a href="#解题过程" class="headerlink" title="解题过程"></a>解题过程</h2><h3 id="第一步：找到合适的-Unicode-字符"><a href="#第一步：找到合适的-Unicode-字符" class="headerlink" title="第一步：找到合适的 Unicode 字符"></a>第一步：找到合适的 Unicode 字符</h3><p>需要一个 Numeric_Value ≥ 1337 的 Unicode 字符。最常用的是 <strong>U+137C</strong>（埃塞俄比亚音节符号），其 Numeric_Value &#x3D; 10000。</p>
+<p>用 Python 验证：</p>
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">&gt;&gt;&gt; </span><span class="keyword">import</span> unicodedata</span><br><span class="line"><span class="meta">&gt;&gt;&gt; </span>b = <span class="built_in">bytes</span>.fromhex(<span class="string">&#x27;e18dbc&#x27;</span>)</span><br><span class="line"><span class="meta">&gt;&gt;&gt; </span>cp = b.decode(<span class="string">&#x27;utf-8&#x27;</span>)</span><br><span class="line"><span class="meta">&gt;&gt;&gt; </span><span class="built_in">print</span>(<span class="string">f&#x27;U+<span class="subst">&#123;<span class="built_in">ord</span>(cp):04X&#125;</span> numeric=<span class="subst">&#123;unicodedata.numeric(cp)&#125;</span>&#x27;</span>)</span><br><span class="line">U+137C numeric=<span class="number">10000.0</span></span><br></pre></td></tr></table></figure>
+
+<h3 id="第二步：URL-编码提交"><a href="#第二步：URL-编码提交" class="headerlink" title="第二步：URL 编码提交"></a>第二步：URL 编码提交</h3><p>U+137C 的 UTF-8 编码是 <code>E1 8D BC</code>，URL 编码后为 <code>%E1%8D%BC</code>。</p>
+<h3 id="第三步：获取-Flag"><a href="#第三步：获取-Flag" class="headerlink" title="第三步：获取 Flag"></a>第三步：获取 Flag</h3><p>响应成功：</p>
+<p><img src="/images/%E8%BD%AC%E7%A0%811.png" loading='lazy'></p>
+<h3 id="补充：为什么用-URL-编码而不是直接发字符？"><a href="#补充：为什么用-URL-编码而不是直接发字符？" class="headerlink" title="补充：为什么用 URL 编码而不是直接发字符？"></a>补充：为什么用 URL 编码而不是直接发字符？</h3><p>Windows 终端默认用 GBK 编码，不支持 U+137C 这个字符的显示和输入：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">UnicodeEncodeError: &#x27;gbk&#x27; codec can&#x27;t encode character &#x27;፼&#x27;</span><br></pre></td></tr></table></figure>
+
+<p>HTTP 的 <code>application/x-www-form-urlencoded</code> 格式只能用 ASCII 字符传输，所以必须将非 ASCII 字节用 <code>%XX</code> 编码：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line">字符 ፼ (U+137C)</span><br><span class="line">  ↓ UTF-8 编码</span><br><span class="line">字节 E1 8D BC</span><br><span class="line">  ↓ URL 编码</span><br><span class="line">%E1%8D%BC  ← HTTP 请求体中安全传输</span><br><span class="line">  ↓ 服务器解析 POST</span><br><span class="line">还原为 U+137C → floatval() 识别 = 10000</span><br></pre></td></tr></table></figure>
+
+<p>注意：<code>U+137C</code> 是 Unicode <strong>代码点编号</strong>（指代字符的地址），不是字符本身。URL 编码的对象是<strong>字符的 UTF-8 字节</strong>，不是编号字符串。</p>
+<h2 id="知识点总结"><a href="#知识点总结" class="headerlink" title="知识点总结"></a>知识点总结</h2><h3 id="1-Unicode-Numeric-Value-属性"><a href="#1-Unicode-Numeric-Value-属性" class="headerlink" title="1. Unicode Numeric_Value 属性"></a>1. Unicode Numeric_Value 属性</h3><p>每个 Unicode 字符可以有多个属性，Numeric_Value 是其中之一。PHP 的 <code>floatval()</code> &#x2F; <code>is_numeric()</code> &#x2F; 隐式类型转换在某些环境下会读取这个属性。</p>
+<h3 id="2-PHP-隐式类型转换"><a href="#2-PHP-隐式类型转换" class="headerlink" title="2. PHP 隐式类型转换"></a>2. PHP 隐式类型转换</h3><figure class="highlight php"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line"><span class="string">&quot;፼&quot;</span> &gt;= <span class="number">1337</span>  <span class="comment">// PHP 将 &quot;፼&quot; 转为 float → 10000.0 → true</span></span><br></pre></td></tr></table></figure>
+
+<p>PHP 的 <code>&gt;=</code> 运算符在比较字符串和数字时，会将字符串通过 <code>floatval()</code> 转为数字。</p>
+<h3 id="3-不安全的设计模式"><a href="#3-不安全的设计模式" class="headerlink" title="3. 不安全的设计模式"></a>3. 不安全的设计模式</h3><p>本题漏洞的核心设计缺陷：<strong>先用字符长度做安全检查（严格），再用数值做业务逻辑（宽松）</strong>。两个阶段对同一输入的理解不一致，产生了绕过。</p>
+<h2 id="同类题型的识别方法"><a href="#同类题型的识别方法" class="headerlink" title="同类题型的识别方法"></a>同类题型的识别方法</h2><h3 id="🚩-特征检测清单"><a href="#🚩-特征检测清单" class="headerlink" title="🚩 特征检测清单"></a>🚩 特征检测清单</h3><table>
+<thead>
+<tr>
+<th>特征</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>&lt;meta charset=&quot;utf-8&quot;&gt;</code> 被注释标记</td>
+<td>比如 <code>&lt;!--Ah,really important,seriously. --&gt;</code></td>
+</tr>
+<tr>
+<td>数字输入但限制单字符</td>
+<td><code>Only one char(?) allowed!</code></td>
+</tr>
+<tr>
+<td>存在价格&#x2F;数值对比逻辑</td>
+<td>购买商品、充值、转账等</td>
+</tr>
+<tr>
+<td>ASCII 最大值 &lt; 目标值</td>
+<td>9 &lt; 1337，显然无法正常达成</td>
+</tr>
+</tbody></table>
+<h3 id="🧪-检测方法"><a href="#🧪-检测方法" class="headerlink" title="🧪 检测方法"></a>🧪 检测方法</h3><p>提交含 Unicode 数字属性的字符做探测：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 用 U+137C (፼, 数值=10000) 测试</span></span><br><span class="line">curl -s <span class="string">&quot;http://target/endpoint&quot;</span> -X POST -d <span class="string">&quot;param=%E1%8D%BC&quot;</span></span><br></pre></td></tr></table></figure>
+
+<p>观察行为变化：</p>
+<ul>
+<li><strong>“Only one char allowed” → “Not enough money”</strong> ✅ 数值被识别，此题类型确认</li>
+<li><strong>“Only one char allowed” → “Wrong format”</strong> ❌ 仅做长度检查，无数值解析</li>
+</ul>
+<h3 id="🔗-相关攻击面"><a href="#🔗-相关攻击面" class="headerlink" title="🔗 相关攻击面"></a>🔗 相关攻击面</h3><p>此类”字符语义在不同阶段理解不一致”的问题还有：</p>
+<table>
+<thead>
+<tr>
+<th>漏洞类型</th>
+<th>不一致点</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><strong>GBK 编码注入</strong></td>
+<td>转义阶段：<code>\</code> 是转义符；解码阶段：与前一字节组成 GBK 双字节</td>
+</tr>
+<tr>
+<td><strong>MySQL utf8 vs utf8mb4</strong></td>
+<td>PHP 用 utf8 截断 4 字节字符，MySQL 用 utf8mb4 不截断 → SQL 注入</td>
+</tr>
+<tr>
+<td><strong>Unicode 大小写折叠</strong></td>
+<td><code>ß.toUpperCase()</code> → <code>SS</code>，绕过长度&#x2F;黑名单检查</td>
+</tr>
+</tbody></table>
+<h2 id="参考链接"><a href="#参考链接" class="headerlink" title="参考链接"></a>参考链接</h2><ul>
+<li><a target="_blank" rel="noopener" href="https://xz.aliyun.com/t/5402">PHP is_numeric 与 Unicode</a></li>
+<li><a target="_blank" rel="noopener" href="https://www.compart.com/en/unicode/">Unicode 字符查询</a></li>
+</ul>
+</article><div class="post-copyright"><div class="post-copyright__author"><span class="post-copyright-meta"><i class="fas fa-circle-user fa-fw"></i>文章作者: </span><span class="post-copyright-info"><a href="https://luaihua.github.io">忆念</a></span></div><div class="post-copyright__type"><span class="post-copyright-meta"><i class="fas fa-square-arrow-up-right fa-fw"></i>文章链接: </span><span class="post-copyright-info"><a href="https://luaihua.github.io/2026/06/10/ASIS-2019-Unicorn-Shop-Unicode%E6%95%B0%E5%AD%97%E5%B1%9E%E6%80%A7%E7%BB%95%E8%BF%87/">https://luaihua.github.io/2026/06/10/ASIS-2019-Unicorn-Shop-Unicode%E6%95%B0%E5%AD%97%E5%B1%9E%E6%80%A7%E7%BB%95%E8%BF%87/</a></span></div><div class="post-copyright__notice"><span class="post-copyright-meta"><i class="fas fa-circle-exclamation fa-fw"></i>版权声明: </span><span class="post-copyright-info">本博客所有文章除特别声明外，均采用 <a href="https://creativecommons.org/licenses/by-nc-sa/4.0/" target="_blank">CC BY-NC-SA 4.0</a> 许可协议。转载请注明来源 <a href="https://luaihua.github.io" target="_blank">Hello World</a>！</span></div></div><div class="tag_share"><div class="post-meta__tag-list"><a class="post-meta__tags" href="/tags/%E8%A7%A3%E9%A2%98wp/">解题wp</a><a class="post-meta__tags" href="/tags/Unicode/">Unicode</a><a class="post-meta__tags" href="/tags/%E7%BC%96%E7%A0%81%E6%BC%8F%E6%B4%9E/">编码漏洞</a><a class="post-meta__tags" href="/tags/%E8%BD%AC%E7%A0%81%E7%BB%95%E8%BF%87/">转码绕过</a></div><div class="post-share"><div class="social-share" data-image="/images/tx6.png" data-sites="facebook,x,wechat,weibo,qq"></div><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/butterfly-extsrc@1.1.6/sharejs/dist/css/share.min.css" media="print" onload="this.media='all'"><script src="https://cdn.jsdelivr.net/npm/butterfly-extsrc@1.1.6/sharejs/dist/js/social-share.min.js" defer></script></div></div><nav class="pagination-post" id="pagination"><a class="pagination-related full-width" href="/2026/06/06/Burpsuite%E9%9D%B6%E5%9C%BA-JWT%E6%BC%8F%E6%B4%9E%E5%8E%9F%E7%90%86%E6%80%BB%E7%BB%93%E5%8F%8A%E5%A4%8D%E7%8E%B0/" title="Bp靶场-JWT漏洞"><div class="cover" style="background: var(--default-bg-color)"></div><div class="info text-right"><div class="info-1"><div class="info-item-1">下一篇</div><div class="info-item-2">Bp靶场-JWT漏洞</div></div><div class="info-2"><div class="info-item-1">一.未验证签名绕过JWT认证靶场地址:实验室：通过未验证签名绕过JWT认证 |网络安全学院 原理:由于服务器未对jwt签名进行验证,导致任何人生成的jwt都可以通过认证 靶场复现:准备工具:burpsuite加上jwt editor插件拓展 目的:伪造用户访问后台/admin,越权删除账户carlos 1.启动靶场,登录账号密码 wiener:peter,抓取带有自身jwt的数据包进行修改显示401 未授权,需要administrator用户才可以访问/admin 2.发送到repeater模块,点击Json Web Token直接修改sub的值为administrator 成功200 可以来到浏览器替换jwt访问/admin页面点击删除,也可以直接在burpsuit上修改url访问路径/admin/delete?username=carlos删除用户这里我替换好了这里直接删除就好了 二.通过有缺陷的签名验证实现JWT认证绕过靶场地址:实验：通过有缺陷的签名验证绕过JWT认证 |网络安全学院 原理:服务器允许签名算法为空,可以将签名算法改成none,从而伪造签名 复现:1.前面的...</div></div></div></a></nav><div class="relatedPosts"><div class="headline"><i class="fas fa-thumbs-up fa-fw"></i><span>相关推荐</span></div><div class="relatedPosts-list"><a class="pagination-related" href="/2026/06/03/%5BWesternCTF2018%5Dshrine(flask%E6%A8%A1%E6%9D%BF%E6%B3%A8%E5%85%A5%E7%BB%95%E8%BF%87config%E8%BF%87%E6%BB%A4)/" title="[WesternCTF2018] shrine(Flask模板注入绕过config过滤)"><div class="cover" style="background: var(--default-bg-color)"></div><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-06-03</div><div class="info-item-2">[WesternCTF2018] shrine(Flask模板注入绕过config过滤)</div></div><div class="info-2"><div class="info-item-1">题目描述访问题目得到一个 Flask 应用，根路径返回完整的源码： 1234567891011121314151617181920212223242526import flaskimport osapp = flask.Flask(__name__)app.config[&#x27;FLAG&#x27;] = os.environ.pop(&#x27;FLAG&#x27;)@app.route(&#x27;/&#x27;)def index():    return open(__file__).read()@app.route(&#x27;/shrine/&lt;path:shrine&gt;&#x27;)def shrine(shrine):    def safe_jinja(s):        s = s.replace(&#x27;(&#x27;, &#x27;&#x27;).replace(&#x27;)&#x27;, &#x27;&#x27;)        blacklist = [&#x27;config&#x27;, &#x27;self&#x27;]   ...</div></div></div></a><a class="pagination-related" href="/2026/05/13/MRCTF2020-Ezpop-%E6%9E%84%E9%80%A0%E5%8F%8D%E5%BA%8F%E5%88%97%E5%8C%96pop%E9%93%BE/" title="[MRCTF2020]Ezpop,构造反序列化pop链"><div class="cover" style="background: var(--default-bg-color)"></div><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-05-13</div><div class="info-item-2">[MRCTF2020]Ezpop,构造反序列化pop链</div></div><div class="info-2"><div class="info-item-1">拿到题目后先解析代码123456789101112131415161718192021222324252627282930313233343536373839404142434445464748class Modifier &#123;    protected  $var;    public function append($value)&#123;        include($value);    &#125;    public function __invoke()&#123;        $this-&gt;append($this-&gt;var);    &#125;&#125;class Show&#123;    public $source;    public $str;    public function __construct($file=&#x27;index.php&#x27;)&#123;        $this-&gt;source = $file;        echo &#x27;Welcome to &#x27;.$this-...</div></div></div></a><a class="pagination-related" href="/2026/05/16/%E6%9E%81%E5%AE%A2%E5%A4%A7%E6%8C%91%E6%88%98-2019-PHP-wakeup%E7%BB%95%E8%BF%87/" title="[极客大挑战 2019]PHP,wakeup绕过"><div class="cover" style="background: var(--default-bg-color)"></div><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-05-16</div><div class="info-item-2">[极客大挑战 2019]PHP,wakeup绕过</div></div><div class="info-2"><div class="info-item-1">进入题目，就有页面提示“所以我有一个良好的备份网站的习惯”,是所以网站可能存在网站源码备份 常见的网站源码备份文件后缀:tar.gz，zip，rar，tar常见的网站源码备份文件名：web，website，backup，back，www，wwwroot，temp  一个个组合尝试后,发现www.zip可以成功获得网站源码备份下载有4个文件 访问一下index.php文件：12345&lt;?php    include &#x27;class.php&#x27;;    $select = $_GET[&#x27;select&#x27;];    $res=unserialize(@$select);    ?&gt; 发现文件包含 class.php 文件 并且文件是get  传参，参数为 select访问class.php文件：1234567891011121314151617181920212223242526272829303132333435363738394041&lt;?phpinclude &#x27;flag.php&#x27;;error_reporting...</div></div></div></a><a class="pagination-related" href="/2026/05/07/%E6%9E%81%E5%AE%A2%E5%A4%A7%E6%8C%91%E6%88%98-2019-Secret-File%E6%96%87%E4%BB%B6%E5%8C%85%E5%90%AB/" title="[极客大挑战 2019]Secret File文件包含"><div class="cover" style="background: var(--default-bg-color)"></div><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-05-07</div><div class="info-item-2">[极客大挑战 2019]Secret File文件包含</div></div><div class="info-2"><div class="info-item-1">进入题目查看源代码，发现有一个链接 点击链接，进入另一个页面，点击SECRET按钮，进入另一个页面 没有发现任何内容，尝试抓包 发现一个隐藏的包，进入其中文件 它说flag在flag.php文件中,而且include了flag.php文件，可以文件包含，但是它又过滤了一些关键字符，无法正常包含，所以用php伪协议，获取flag.php的base64编码，然后解码得到flag </div></div></div></a><a class="pagination-related" href="/2026/06/02/%5BHCTF%202018%5DWarmUp/" title="[HCTF 2018]WarmUp(文件包含绕过)"><div class="cover" style="background: var(--default-bg-color)"></div><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-06-02</div><div class="info-item-2">[HCTF 2018]WarmUp(文件包含绕过)</div></div><div class="info-2"><div class="info-item-1">题目描述进入题目是一个网页，查看页面源码的注释中发现 source.php，访问后得到完整的 PHP 源代码： 12345678910111213141516171819202122232425262728293031323334353637383940414243444546474849&lt;?php    highlight_file(__FILE__);    class emmm    &#123;        public static function checkFile(&amp;$page)        &#123;            $whitelist = [&quot;source&quot;=&gt;&quot;source.php&quot;, &quot;hint&quot;=&gt;&quot;hint.php&quot;];            if (! isset($page) || !is_string($page)) &#123;                echo &quot;you can&#x27;t see it&q...</div></div></div></a><a class="pagination-related" href="/2026/05/17/%E7%BD%91%E9%BC%8E%E6%9D%AF-2020-%E9%9D%92%E9%BE%99%E7%BB%84-AreUSerialz-%E5%8F%8D%E5%BA%8F%E5%88%97%E5%8C%96%EF%BC%8C%E5%BC%B1%E6%AF%94%E8%BE%83/" title="[网鼎杯 2020 青龙组]AreUSerialz(反序列化，弱比较)"><div class="cover" style="background: var(--default-bg-color)"></div><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-05-17</div><div class="info-item-2">[网鼎杯 2020 青龙组]AreUSerialz(反序列化，弱比较)</div></div><div class="info-2"><div class="info-item-1">题目分析题目概述本题是一道典型的 PHP 反序列化漏洞题目，主要考察对 PHP 反序列化机制和比较运算符的理解。 关键代码123456789101112131415161718192021222324252627282930313233343536373839404142434445464748495051525354555657585960616263646566676869707172737475&lt;?phpinclude(&quot;flag.php&quot;);highlight_file(__FILE__);class FileHandler &#123;    protected $op;    protected $filename;    protected $content;    function __construct() &#123;        $op = &quot;1&quot;;        $filename = &quot;/tmp/tmpfile&quot;;        $content = &quot;Hello World!...</div></div></div></a></div></div></div><div class="aside-content" id="aside-content"><div class="card-widget card-info text-center"><div class="avatar-img"><img src="/images/tx6.png" onerror="this.onerror=null;this.src='/img/friend_404.gif'" alt="avatar"/ loading='lazy'></div><div class="author-info-name">忆念</div><div class="author-info-description"></div><div class="site-data"><a href="/archives/"><div class="headline">文章</div><div class="length-num">37</div></a><a href="/tags/"><div class="headline">标签</div><div class="length-num">22</div></a><a href="/categories/"><div class="headline">分类</div><div class="length-num">0</div></a></div><a id="card-info-btn" target="_blank" rel="noopener" href="https://github.com/luaihua/luaihua.github.io"><i class="fab fa-github"></i><span>我的GitHub</span></a></div><div class="card-widget card-announcement"><div class="item-headline"><i class="fas fa-bullhorn fa-shake"></i><span>公告</span></div><div class="announcement_content">欢迎来到我的博客</div></div><div class="sticky_layout"><div class="card-widget" id="card-toc"><div class="item-headline"><i class="fas fa-stream"></i><span>目录</span><span class="toc-percentage"></span></div><div class="toc-content"><ol class="toc"><li class="toc-item toc-level-2"><a class="toc-link" href="#%E9%A2%98%E7%9B%AE%E6%8F%8F%E8%BF%B0"><span class="toc-number">1.</span> <span class="toc-text">题目描述</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E6%8E%A2%E7%B4%A2%E8%BF%87%E7%A8%8B"><span class="toc-number">2.</span> <span class="toc-text">探索过程</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#%E6%9F%A5%E7%9C%8B%E9%A1%B5%E9%9D%A2%E6%BA%90%E7%A0%81"><span class="toc-number">2.1.</span> <span class="toc-text">查看页面源码</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E6%B5%8B%E8%AF%95%E8%A1%A8%E5%8D%95%E6%8F%90%E4%BA%A4"><span class="toc-number">2.2.</span> <span class="toc-text">测试表单提交</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E6%BC%8F%E6%B4%9E%E5%8E%9F%E7%90%86%EF%BC%9AUnicode-Numeric-Value-%E5%B1%9E%E6%80%A7"><span class="toc-number">3.</span> <span class="toc-text">漏洞原理：Unicode Numeric Value 属性</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#Unicode-%E6%95%B0%E5%AD%97%E5%B1%9E%E6%80%A7"><span class="toc-number">3.1.</span> <span class="toc-text">Unicode 数字属性</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#PHP-%E7%9A%84%E7%B1%BB%E5%9E%8B%E8%BD%AC%E6%8D%A2%E6%9C%BA%E5%88%B6"><span class="toc-number">3.2.</span> <span class="toc-text">PHP 的类型转换机制</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E6%BC%8F%E6%B4%9E%E6%9C%AC%E8%B4%A8"><span class="toc-number">3.3.</span> <span class="toc-text">漏洞本质</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E8%A7%A3%E9%A2%98%E8%BF%87%E7%A8%8B"><span class="toc-number">4.</span> <span class="toc-text">解题过程</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#%E7%AC%AC%E4%B8%80%E6%AD%A5%EF%BC%9A%E6%89%BE%E5%88%B0%E5%90%88%E9%80%82%E7%9A%84-Unicode-%E5%AD%97%E7%AC%A6"><span class="toc-number">4.1.</span> <span class="toc-text">第一步：找到合适的 Unicode 字符</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E7%AC%AC%E4%BA%8C%E6%AD%A5%EF%BC%9AURL-%E7%BC%96%E7%A0%81%E6%8F%90%E4%BA%A4"><span class="toc-number">4.2.</span> <span class="toc-text">第二步：URL 编码提交</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E7%AC%AC%E4%B8%89%E6%AD%A5%EF%BC%9A%E8%8E%B7%E5%8F%96-Flag"><span class="toc-number">4.3.</span> <span class="toc-text">第三步：获取 Flag</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E8%A1%A5%E5%85%85%EF%BC%9A%E4%B8%BA%E4%BB%80%E4%B9%88%E7%94%A8-URL-%E7%BC%96%E7%A0%81%E8%80%8C%E4%B8%8D%E6%98%AF%E7%9B%B4%E6%8E%A5%E5%8F%91%E5%AD%97%E7%AC%A6%EF%BC%9F"><span class="toc-number">4.4.</span> <span class="toc-text">补充：为什么用 URL 编码而不是直接发字符？</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E7%9F%A5%E8%AF%86%E7%82%B9%E6%80%BB%E7%BB%93"><span class="toc-number">5.</span> <span class="toc-text">知识点总结</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#1-Unicode-Numeric-Value-%E5%B1%9E%E6%80%A7"><span class="toc-number">5.1.</span> <span class="toc-text">1. Unicode Numeric_Value 属性</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#2-PHP-%E9%9A%90%E5%BC%8F%E7%B1%BB%E5%9E%8B%E8%BD%AC%E6%8D%A2"><span class="toc-number">5.2.</span> <span class="toc-text">2. PHP 隐式类型转换</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#3-%E4%B8%8D%E5%AE%89%E5%85%A8%E7%9A%84%E8%AE%BE%E8%AE%A1%E6%A8%A1%E5%BC%8F"><span class="toc-number">5.3.</span> <span class="toc-text">3. 不安全的设计模式</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E5%90%8C%E7%B1%BB%E9%A2%98%E5%9E%8B%E7%9A%84%E8%AF%86%E5%88%AB%E6%96%B9%E6%B3%95"><span class="toc-number">6.</span> <span class="toc-text">同类题型的识别方法</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#%F0%9F%9A%A9-%E7%89%B9%E5%BE%81%E6%A3%80%E6%B5%8B%E6%B8%85%E5%8D%95"><span class="toc-number">6.1.</span> <span class="toc-text">🚩 特征检测清单</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%F0%9F%A7%AA-%E6%A3%80%E6%B5%8B%E6%96%B9%E6%B3%95"><span class="toc-number">6.2.</span> <span class="toc-text">🧪 检测方法</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%F0%9F%94%97-%E7%9B%B8%E5%85%B3%E6%94%BB%E5%87%BB%E9%9D%A2"><span class="toc-number">6.3.</span> <span class="toc-text">🔗 相关攻击面</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E5%8F%82%E8%80%83%E9%93%BE%E6%8E%A5"><span class="toc-number">7.</span> <span class="toc-text">参考链接</span></a></li></ol></div></div><div class="card-widget card-recent-post"><div class="item-headline"><i class="fas fa-history"></i><span>最新文章</span></div><div class="aside-list"><div class="aside-list-item no-cover"><div class="content"><a class="title" href="/2026/06/10/ASIS-2019-Unicorn-Shop-Unicode%E6%95%B0%E5%AD%97%E5%B1%9E%E6%80%A7%E7%BB%95%E8%BF%87/" title="[ASIS 2019]Unicorn Shop — Unicode 数字属性绕过价格限制">[ASIS 2019]Unicorn Shop — Unicode 数字属性绕过价格限制</a><time datetime="2026-06-10T09:00:00.000Z" title="发表于 2026-06-10 17:00:00">2026-06-10</time></div></div><div class="aside-list-item no-cover"><div class="content"><a class="title" href="/2026/06/06/Burpsuite%E9%9D%B6%E5%9C%BA-JWT%E6%BC%8F%E6%B4%9E%E5%8E%9F%E7%90%86%E6%80%BB%E7%BB%93%E5%8F%8A%E5%A4%8D%E7%8E%B0/" title="Bp靶场-JWT漏洞">Bp靶场-JWT漏洞</a><time datetime="2026-06-06T13:00:00.000Z" title="发表于 2026-06-06 21:00:00">2026-06-06</time></div></div><div class="aside-list-item no-cover"><div class="content"><a class="title" href="/2026/06/05/%5B%E7%BD%91%E9%BC%8E%E6%9D%AF%202020%20%E6%9C%B1%E9%9B%80%E7%BB%84%5Dphpweb(%E5%8F%8D%E5%BA%8F%E5%88%97%E5%8C%96+linux%E5%91%BD%E4%BB%A4%E6%9F%A5%E8%AF%A2)/" title="[网鼎杯 2020 朱雀组]phpweb(反序列化+linux命令执行)">[网鼎杯 2020 朱雀组]phpweb(反序列化+linux命令执行)</a><time datetime="2026-06-05T12:14:00.000Z" title="发表于 2026-06-05 20:14:00">2026-06-05</time></div></div><div class="aside-list-item no-cover"><div class="content"><a class="title" href="/2026/06/03/%5BWesternCTF2018%5Dshrine(flask%E6%A8%A1%E6%9D%BF%E6%B3%A8%E5%85%A5%E7%BB%95%E8%BF%87config%E8%BF%87%E6%BB%A4)/" title="[WesternCTF2018] shrine(Flask模板注入绕过config过滤)">[WesternCTF2018] shrine(Flask模板注入绕过config过滤)</a><time datetime="2026-06-03T08:50:00.000Z" title="发表于 2026-06-03 16:50:00">2026-06-03</time></div></div><div class="aside-list-item no-cover"><div class="content"><a class="title" href="/2026/06/03/%5B%E5%BC%BA%E7%BD%91%E6%9D%AF%202019%5D%E9%9A%8F%E4%BE%BF%E6%B3%A8(%E5%A0%86%E5%8F%A0%E6%B3%A8%E5%85%A5+PREPARE-EXECUTE+CONCAT%E6%8B%BC%E6%8E%A5%E5%AD%97%E7%AC%A6%E4%B8%B2%20%E7%BB%95%E8%BF%87)/" title="[强网杯 2019]随便注(堆叠注入+PREPARE/EXECUTE+CONCAT拼接字符串 绕过)">[强网杯 2019]随便注(堆叠注入+PREPARE/EXECUTE+CONCAT拼接字符串 绕过)</a><time datetime="2026-06-03T04:30:00.000Z" title="发表于 2026-06-03 12:30:00">2026-06-03</time></div></div></div></div></div></div></main><footer id="footer"><div class="footer-other"><div class="footer-copyright"><span class="copyright">&copy;&nbsp;2025 - 2026 By 忆念</span><span class="framework-info"><span>框架 </span><a target="_blank" rel="noopener" href="https://hexo.io">Hexo 8.1.1</a><span class="footer-separator">|</span><span>主题 </span><a target="_blank" rel="noopener" href="https://github.com/jerryc127/hexo-theme-butterfly">Butterfly 5.5.4</a></span></div><div class="footer_custom_text"><i class="fas fa-pencil-alt"></i> 总字数 <span id="wordCount">0</span> 字 | <i class="fas fa-heartbeat"></i> 已运行 <span id="runtime"></span></div></div></footer></div><div id="rightside"><div id="rightside-config-hide"><button id="readmode" type="button" title="阅读模式"><i class="fas fa-book-open"></i></button><button id="darkmode" type="button" title="日间和夜间模式切换"><i class="fas fa-adjust"></i></button><button id="hide-aside-btn" type="button" title="单栏和双栏切换"><i class="fas fa-arrows-alt-h"></i></button></div><div id="rightside-config-show"><button id="rightside-config" type="button" title="设置"><i class="fas fa-cog fa-spin"></i></button><button class="close" id="mobile-toc-button" type="button" title="目录"><i class="fas fa-list-ul"></i></button><button id="go-up" type="button" title="回到顶部"><span class="scroll-percent"></span><i class="fas fa-arrow-up"></i></button></div></div><div><script src="/js/utils.js?v=5.5.4"></script><script src="/js/main.js?v=5.5.4"></script><script src="https://cdn.jsdelivr.net/npm/@fancyapps/ui@6.1.9/dist/fancybox/fancybox.umd.min.js"></script><div class="js-pjax"></div><script>window.onload=function(){var n=document.createElement('canvas');n.id='snow-canvas';n.style='position:fixed;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:9999';document.body.appendChild(n);var c=n.getContext('2d'),w=window.innerWidth,h=window.innerHeight;n.width=w;n.height=h;var s=[];for(var i=0;i<100;i++){s.push({x:Math.random()*w,y:Math.random()*h,r:Math.random()*4+1,d:Math.random()*1+0.5})}function d(){c.clearRect(0,0,w,h);c.fillStyle='rgba(255,255,255,0.8)';c.beginPath();for(var i=0;i<s.length;i++){var p=s[i];c.moveTo(p.x,p.y);c.arc(p.x,p.y,p.r,0,Math.PI*2,true);p.y+=p.d;if(p.y>h){p.y=-p.r;p.x=Math.random()*w}}c.fill();requestAnimationFrame(d)}d();window.addEventListener('resize',function(){w=window.innerWidth;h=window.innerHeight;n.width=w;n.height=h})};</script><canvas class="fireworks" mobile="true"></canvas><script src="https://cdn.jsdelivr.net/npm/butterfly-extsrc@1.1.6/dist/fireworks.min.js"></script><script id="click-heart" src="https://cdn.jsdelivr.net/npm/butterfly-extsrc@1.1.6/dist/click-heart.min.js" async="async" mobile="true"></script><script id="click-show-text" src="https://cdn.jsdelivr.net/npm/butterfly-extsrc@1.1.6/dist/click-show-text.min.js" data-mobile="true" data-text="❤️ 开心,✨ 努力,🍀 幸运" data-fontsize="15px" data-random="false" async="async"></script><script async data-pjax src="//busuanzi.ibruce.info/busuanzi/2.3/busuanzi.pure.mini.js"></script><div id="local-search"><div class="search-dialog"><nav class="search-nav"><span class="search-dialog-title">搜索</span><i class="fas fa-spinner fa-pulse" id="loading-status" hidden="hidden"></i><button class="search-close-button"><i class="fas fa-times"></i></button></nav><div class="text-center" id="loading-database"><i class="fas fa-spinner fa-pulse"></i><span>  数据加载中</span></div><div class="local-search-input"><input placeholder="搜索文章" type="text"/></div><hr/><div id="local-search-results"></div><div class="ais-Pagination" id="local-search-pagination" style="display:none;"><ul class="ais-Pagination-list"></ul></div><div id="local-search-stats"></div></div><div id="search-mask"></div><script src="/js/search/local-search.js?v=5.5.4"></script></div></div></body></html>
